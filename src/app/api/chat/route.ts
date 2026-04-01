@@ -1,17 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { orchestratorAgent, type OrchestratorState } from '@/lib/agents/orchestrator-agent';
+import { NextRequest } from 'next/server';
+import { CampaignHarness, detectWorkflow } from '@/lib/agents/harness';
 import { createAdminClient } from '@/lib/supabase-server';
-import type { ExecutionPlan, UserIntent } from '@/schemas/agent-output';
 
 // Allow longer execution for agent pipelines
-export const maxDuration = 120; // 2 minutes (Vercel Pro)
+export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, state, plan, intent } = await request.json();
+    const { message, resumeStage, pipelineContext } = await request.json();
 
     if (!message || typeof message !== 'string') {
-      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
+      return new Response(JSON.stringify({ error: 'Message is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     const supabase = createAdminClient();
@@ -31,38 +33,70 @@ export async function POST(request: NextRequest) {
       content: message,
     });
 
-    // Process through Orchestrator
-    const response = await orchestratorAgent.processMessage(
-      message,
-      chatHistory,
-      (state as OrchestratorState) || 'idle',
-      plan as ExecutionPlan | undefined,
-      intent as UserIntent | undefined,
-    );
+    // Create SSE stream
+    const encoder = new TextEncoder();
+    const harness = new CampaignHarness();
 
-    // Store assistant response
-    await supabase.from('chat_messages').insert({
-      role: 'assistant',
-      content: response.message,
-      metadata: {
-        state: response.state,
-        has_plan: !!response.plan,
-        approval_ids: response.approval_ids,
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          // Determine workflow
+          const workflow = resumeStage ? 'pipeline' : detectWorkflow(message);
+          const generator = workflow === 'pipeline'
+            ? harness.runPipeline(message, chatHistory, resumeStage, pipelineContext)
+            : harness.runStandalone(message, chatHistory);
+
+          let fullResponse = '';
+
+          for await (const event of generator) {
+            // Send event to client
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+
+            // Accumulate text for storage
+            if (event.type === 'thinking' && event.content) {
+              fullResponse += event.content + '\n';
+            }
+            if (event.type === 'tool_done' && event.summary) {
+              fullResponse += `[${event.tool}] ${event.summary}\n`;
+            }
+            if (event.type === 'message' && event.content) {
+              fullResponse += event.content + '\n';
+            }
+          }
+
+          // Store assistant response
+          if (fullResponse.trim()) {
+            await supabase.from('chat_messages').insert({
+              role: 'assistant',
+              content: fullResponse.trim(),
+            });
+          }
+        } catch (error) {
+          const errorEvent = {
+            type: 'error',
+            content: error instanceof Error ? error.message : 'Pipeline failed',
+          };
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`));
+        } finally {
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        }
       },
-      related_approval_ids: response.approval_ids || [],
     });
 
-    return NextResponse.json({
-      response: response.message,
-      state: response.state,
-      plan: response.plan,
-      intent: response.intent,
-      approval_ids: response.approval_ids || [],
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Chat failed' },
-      { status: 500 },
-    );
+    return new Response(JSON.stringify({
+      error: error instanceof Error ? error.message : 'Chat failed',
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }

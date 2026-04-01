@@ -272,24 +272,24 @@ export type UserIntent = z.infer<typeof userIntentSchema>;
 
 // ---- Orchestrator Execution Plan ----
 
-// Coerce any value to string safely
-const toStr = (v: unknown): string | undefined => {
-  if (v === undefined || v === null) return undefined;
-  return String(v);
-};
-
-const executionStepSchema = z.record(z.unknown()).transform((raw) => {
-  // Extract agent name from any key variation
-  const agent = toStr(raw.agent) || toStr(raw.agent_name) || toStr(raw.tool) || 'ResearchAgent';
-  // Extract action description from any key variation
-  const action = toStr(raw.action) || toStr(raw.description) || toStr(raw.task)
-    || toStr(raw.name) || toStr(raw.detail) || toStr(raw.details)
-    || (typeof raw.step === 'string' ? raw.step : undefined)
-    || 'execute';
-  const depends_on = Array.isArray(raw.depends_on) ? raw.depends_on.map(Number) : undefined;
-
-  return { agent, action, depends_on };
-});
+// Step schema that accepts any shape from AI
+const executionStepSchema = z.object({
+  agent: z.unknown().optional(),
+  agent_name: z.unknown().optional(),
+  tool: z.unknown().optional(),
+  action: z.unknown().optional(),
+  description: z.unknown().optional(),
+  task: z.unknown().optional(),
+  name: z.unknown().optional(),
+  detail: z.unknown().optional(),
+  details: z.unknown().optional(),
+  step: z.unknown().optional(),
+  depends_on: z.array(z.number()).optional(),
+}).passthrough().transform((raw) => ({
+  agent: String(raw.agent || raw.agent_name || raw.tool || 'ResearchAgent'),
+  action: String(raw.action || raw.description || raw.task || raw.name || raw.detail || raw.details || (typeof raw.step === 'string' ? raw.step : '') || 'execute'),
+  depends_on: raw.depends_on,
+}));
 
 export const executionPlanSchema = z.object({
   summary: z.string().optional().default('Execute the requested campaign operations.'),

@@ -1,44 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { researchAgent } from '@/lib/agents/research-agent';
-import { qaSentinel } from '@/lib/agents/qa-sentinel';
-import { createAdminClient } from '@/lib/supabase-server';
+import { executeTool } from '@/lib/agents/tools';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { business_description, seed_keywords, competitor_domains, target_audience } = body;
+    const { business_description, seed_keywords, competitor_domains } = body;
 
     if (!business_description) {
       return NextResponse.json({ error: 'business_description is required' }, { status: 400 });
     }
 
-    // Run research
-    const result = await researchAgent.research({
+    // Research keywords
+    const kwResult = await executeTool('research_keywords', {
+      seed_keywords: seed_keywords || [business_description.split(' ').slice(0, 3).join(' ')],
       business_description,
-      seed_keywords: seed_keywords || [],
-      competitor_domains: competitor_domains || [],
-      target_audience,
     });
 
-    // QA validate
-    const qaResult = await qaSentinel.validateResearchOutput(result);
-
-    // Cache results
-    const supabase = createAdminClient();
-    await supabase.from('keyword_research').insert({
-      query: business_description,
-      results: result as unknown as Record<string, unknown>,
-      source: 'research_agent',
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    });
+    // Analyze competitors if domains provided
+    let compResult = null;
+    if (competitor_domains?.length > 0) {
+      compResult = await executeTool('analyze_competitors', {
+        competitor_domains,
+        seed_keywords: seed_keywords || [],
+      });
+    }
 
     return NextResponse.json({
-      research: result,
-      qa: {
-        passed: qaResult.passed,
-        errors: qaResult.errors,
-        warnings: qaResult.warnings,
-      },
+      keywords: kwResult.data,
+      competitors: compResult?.data || null,
+      summary: kwResult.result + (compResult ? '\n' + compResult.result : ''),
     });
   } catch (error) {
     return NextResponse.json(

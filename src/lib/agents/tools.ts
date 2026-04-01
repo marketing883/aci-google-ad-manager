@@ -19,6 +19,11 @@ export type ToolName =
   | 'create_campaign'
   | 'create_ad_group'
   | 'create_ad'
+  | 'update_campaign'
+  | 'update_ad_group'
+  | 'update_ad'
+  | 'delete_ad_group'
+  | 'delete_ad'
   | 'build_tracking_urls'
   | 'search_images'
   | 'validate_campaign'
@@ -216,6 +221,86 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         count: { type: 'number', description: 'Number of images to return (default 5)' },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'update_campaign',
+    description: 'Update an existing campaign — change name, budget, bidding strategy, targets, or status.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        campaign_id: { type: 'string', description: 'UUID of the campaign to update' },
+        name: { type: 'string', description: 'New campaign name' },
+        daily_budget_dollars: { type: 'number', description: 'New daily budget in dollars' },
+        bidding_strategy: {
+          type: 'string',
+          enum: ['MAXIMIZE_CLICKS', 'MAXIMIZE_CONVERSIONS', 'TARGET_CPA', 'TARGET_ROAS', 'MANUAL_CPC', 'MAXIMIZE_CONVERSION_VALUE', 'TARGET_IMPRESSION_SHARE'],
+        },
+        geo_targets: { type: 'array', items: { type: 'string' }, description: 'New target locations' },
+        status: { type: 'string', enum: ['draft', 'active', 'paused'], description: 'New campaign status' },
+      },
+      required: ['campaign_id'],
+    },
+  },
+  {
+    name: 'update_ad_group',
+    description: 'Update an existing ad group — change name, bid, or status.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        ad_group_id: { type: 'string', description: 'UUID of the ad group to update' },
+        name: { type: 'string', description: 'New ad group name' },
+        cpc_bid_micros: { type: 'number', description: 'New CPC bid in micros (1000000 = $1)' },
+        status: { type: 'string', enum: ['draft', 'active', 'paused'], description: 'New status' },
+      },
+      required: ['ad_group_id'],
+    },
+  },
+  {
+    name: 'update_ad',
+    description: 'Update an existing ad — change headlines, descriptions, URLs, or status.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        ad_id: { type: 'string', description: 'UUID of the ad to update' },
+        headlines: {
+          type: 'array',
+          items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+          description: 'New headlines (max 30 chars each)',
+        },
+        descriptions: {
+          type: 'array',
+          items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+          description: 'New descriptions (max 90 chars each)',
+        },
+        final_urls: { type: 'array', items: { type: 'string' }, description: 'New landing page URLs' },
+        path1: { type: 'string', description: 'New display URL path 1 (max 15 chars)' },
+        path2: { type: 'string', description: 'New display URL path 2 (max 15 chars)' },
+        status: { type: 'string', enum: ['draft', 'active', 'paused'], description: 'New status' },
+      },
+      required: ['ad_id'],
+    },
+  },
+  {
+    name: 'delete_ad_group',
+    description: 'Delete an ad group and all its ads and keywords. This is a soft delete (sets status to removed).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        ad_group_id: { type: 'string', description: 'UUID of the ad group to delete' },
+      },
+      required: ['ad_group_id'],
+    },
+  },
+  {
+    name: 'delete_ad',
+    description: 'Delete a specific ad from an ad group. This is a soft delete (sets status to removed).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        ad_id: { type: 'string', description: 'UUID of the ad to delete' },
+      },
+      required: ['ad_id'],
     },
   },
   {
@@ -694,6 +779,95 @@ export async function executeTool(
       };
     }
 
+    // ---- UPDATE CAMPAIGN ----
+    case 'update_campaign': {
+      const updates: Record<string, unknown> = {};
+      if (input.name) updates.name = input.name;
+      if (input.daily_budget_dollars) updates.budget_amount_micros = Math.round((input.daily_budget_dollars as number) * 1_000_000);
+      if (input.bidding_strategy) updates.bidding_strategy = input.bidding_strategy;
+      if (input.geo_targets) updates.geo_targets = (input.geo_targets as string[]).map((g) => ({ country: g }));
+      if (input.status) updates.status = input.status;
+
+      const { error } = await supabase
+        .from('campaigns')
+        .update(updates)
+        .eq('id', input.campaign_id as string);
+
+      if (error) return { result: `Error updating campaign: ${error.message}` };
+
+      const changed = Object.keys(updates).join(', ');
+      return { result: `Campaign updated: ${changed}`, data: { campaign_id: input.campaign_id } };
+    }
+
+    // ---- UPDATE AD GROUP ----
+    case 'update_ad_group': {
+      const updates: Record<string, unknown> = {};
+      if (input.name) updates.name = input.name;
+      if (input.cpc_bid_micros) updates.cpc_bid_micros = input.cpc_bid_micros;
+      if (input.status) updates.status = input.status;
+
+      const { error } = await supabase
+        .from('ad_groups')
+        .update(updates)
+        .eq('id', input.ad_group_id as string);
+
+      if (error) return { result: `Error updating ad group: ${error.message}` };
+
+      return { result: `Ad group updated: ${Object.keys(updates).join(', ')}`, data: { ad_group_id: input.ad_group_id } };
+    }
+
+    // ---- UPDATE AD ----
+    case 'update_ad': {
+      const updates: Record<string, unknown> = {};
+      if (input.headlines) {
+        const rawHeadlines = Array.isArray(input.headlines) ? input.headlines : [];
+        updates.headlines = rawHeadlines.map((h: unknown) => typeof h === 'string' ? { text: h } : h);
+      }
+      if (input.descriptions) {
+        const rawDescs = Array.isArray(input.descriptions) ? input.descriptions : [];
+        updates.descriptions = rawDescs.map((d: unknown) => typeof d === 'string' ? { text: d } : d);
+      }
+      if (input.final_urls) updates.final_urls = Array.isArray(input.final_urls) ? input.final_urls : [input.final_urls];
+      if (input.path1 !== undefined) updates.path1 = input.path1 || null;
+      if (input.path2 !== undefined) updates.path2 = input.path2 || null;
+      if (input.status) updates.status = input.status;
+
+      const { error } = await supabase
+        .from('ads')
+        .update(updates)
+        .eq('id', input.ad_id as string);
+
+      if (error) return { result: `Error updating ad: ${error.message}` };
+
+      return { result: `Ad updated: ${Object.keys(updates).join(', ')}`, data: { ad_id: input.ad_id } };
+    }
+
+    // ---- DELETE AD GROUP ----
+    case 'delete_ad_group': {
+      const agId = input.ad_group_id as string;
+
+      // Soft delete ad group + its ads + its keywords
+      await supabase.from('ads').update({ status: 'removed' }).eq('ad_group_id', agId);
+      await supabase.from('keywords').update({ status: 'removed' }).eq('ad_group_id', agId);
+      const { error } = await supabase.from('ad_groups').update({ status: 'removed' }).eq('id', agId);
+
+      if (error) return { result: `Error deleting ad group: ${error.message}` };
+
+      return { result: `Ad group deleted (and its ads + keywords).`, data: { ad_group_id: agId } };
+    }
+
+    // ---- DELETE AD ----
+    case 'delete_ad': {
+      const { error } = await supabase
+        .from('ads')
+        .update({ status: 'removed' })
+        .eq('id', input.ad_id as string);
+
+      if (error) return { result: `Error deleting ad: ${error.message}` };
+
+      return { result: `Ad deleted.`, data: { ad_id: input.ad_id } };
+    }
+
     default:
       return { result: `Unknown tool: ${name}` };
   }
@@ -710,9 +884,9 @@ export function getToolsForStage(stage: PipelineStage): Anthropic.Tool[] {
     gather: ['ask_user_questions'],
     research: ['research_keywords', 'analyze_competitors'],
     strategy: [], // No tools — AI reasons with accumulated context
-    build: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images'],
+    build: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'delete_ad_group', 'delete_ad'],
     present: ['validate_campaign'],
-    edit: ['create_ad_group', 'create_ad', 'build_tracking_urls'],
+    edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'create_ad_group', 'create_ad', 'build_tracking_urls'],
     approve: ['validate_campaign', 'submit_for_approval'],
     standalone: TOOL_DEFINITIONS.map((t) => t.name as ToolName), // All tools
   };

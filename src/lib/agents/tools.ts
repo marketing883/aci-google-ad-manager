@@ -410,8 +410,19 @@ export async function executeTool(
 
       if (agError) return { result: `Error creating ad group: ${agError.message}` };
 
-      // Add keywords
-      const keywords = (input.keywords as Array<{ text: string; match_type: string }>) || [];
+      // Add keywords — handle various shapes the AI might send
+      let keywords: Array<{ text: string; match_type: string }> = [];
+      if (Array.isArray(input.keywords)) {
+        keywords = input.keywords.map((kw: unknown) => {
+          if (typeof kw === 'string') return { text: kw, match_type: 'BROAD' };
+          if (typeof kw === 'object' && kw !== null) {
+            const k = kw as Record<string, unknown>;
+            return { text: String(k.text || k.keyword || ''), match_type: String(k.match_type || k.matchType || 'BROAD') };
+          }
+          return { text: String(kw), match_type: 'BROAD' };
+        }).filter((kw) => kw.text.length > 0);
+      }
+
       if (keywords.length > 0) {
         await supabase.from('keywords').insert(
           keywords.map((kw) => ({
@@ -423,8 +434,11 @@ export async function executeTool(
         );
       }
 
-      // Add negative keywords
-      const negKeywords = (input.negative_keywords as string[]) || [];
+      // Add negative keywords — handle string or array
+      let negKeywords: string[] = [];
+      if (Array.isArray(input.negative_keywords)) {
+        negKeywords = input.negative_keywords.map((nk: unknown) => String(nk)).filter(Boolean);
+      }
       if (negKeywords.length > 0) {
         await supabase.from('negative_keywords').insert(
           negKeywords.map((text) => ({
@@ -444,14 +458,36 @@ export async function executeTool(
 
     // ---- CREATE AD ----
     case 'create_ad': {
-      const headlines = (input.headlines as Array<{ text: string; pinned_position?: number }>) || [];
-      const descriptions = (input.descriptions as Array<{ text: string }>) || [];
+      // Normalize headlines — handle strings, objects, mixed
+      const rawHeadlines = Array.isArray(input.headlines) ? input.headlines : [];
+      const headlines = rawHeadlines.map((h: unknown) => {
+        if (typeof h === 'string') return { text: h };
+        if (typeof h === 'object' && h !== null) {
+          const obj = h as Record<string, unknown>;
+          return { text: String(obj.text || obj.headline || ''), pinned_position: obj.pinned_position as number | undefined };
+        }
+        return { text: String(h) };
+      }).filter((h) => h.text.length > 0);
+
+      const rawDescriptions = Array.isArray(input.descriptions) ? input.descriptions : [];
+      const descriptions = rawDescriptions.map((d: unknown) => {
+        if (typeof d === 'string') return { text: d };
+        if (typeof d === 'object' && d !== null) {
+          const obj = d as Record<string, unknown>;
+          return { text: String(obj.text || obj.description || '') };
+        }
+        return { text: String(d) };
+      }).filter((d) => d.text.length > 0);
+
+      const finalUrls = Array.isArray(input.final_urls)
+        ? input.final_urls.map((u: unknown) => String(u)).filter(Boolean)
+        : typeof input.final_urls === 'string' ? [input.final_urls] : [];
 
       // Validate via QA
       const qaResult = qaSentinel.validateAdCopySync({
         headlines,
         descriptions,
-        final_urls: input.final_urls as string[],
+        final_urls: finalUrls,
         path1: input.path1 as string,
         path2: input.path2 as string,
       });
@@ -468,7 +504,7 @@ export async function executeTool(
           ad_type: 'RESPONSIVE_SEARCH',
           headlines,
           descriptions,
-          final_urls: input.final_urls as string[],
+          final_urls: finalUrls,
           path1: (input.path1 as string) || null,
           path2: (input.path2 as string) || null,
           status: 'draft',

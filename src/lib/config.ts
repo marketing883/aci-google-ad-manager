@@ -5,12 +5,28 @@
 export const CONFIG = {
   // AI Model configuration
   models: {
+    // Orchestrator tier — highest reasoning for intent parsing, planning, coordination
+    orchestrator: {
+      provider: 'anthropic' as const,
+      model: 'claude-opus-4-0-20250514',
+      maxTokens: 16384,
+      temperature: 0.5,
+      fallbacks: [
+        { provider: 'openai' as const, model: 'o3' },
+        { provider: 'anthropic' as const, model: 'claude-sonnet-4-20250514' },
+      ],
+    },
     // Strategy tier — complex reasoning, research, optimization
     strategy: {
       provider: 'anthropic' as const,
       model: 'claude-sonnet-4-20250514',
       maxTokens: 8192,
       temperature: 0.7,
+      fallbacks: [
+        { provider: 'anthropic' as const, model: 'claude-3-5-haiku-20241022' },
+        { provider: 'openai' as const, model: 'gpt-4o' },
+        { provider: 'openai' as const, model: 'gpt-4o-mini' },
+      ],
     },
     // Fast tier — bulk generation, templated work
     fast: {
@@ -18,13 +34,29 @@ export const CONFIG = {
       model: 'claude-3-5-haiku-20241022',
       maxTokens: 4096,
       temperature: 0.7,
+      fallbacks: [
+        { provider: 'openai' as const, model: 'gpt-4o-mini' },
+      ],
     },
-    // Fallback chain
-    fallbacks: [
-      { provider: 'anthropic' as const, model: 'claude-3-5-haiku-20241022' },
-      { provider: 'openai' as const, model: 'gpt-4o' },
-      { provider: 'openai' as const, model: 'gpt-4o-mini' },
-    ],
+  },
+
+  // Rate limits per provider (requests/tokens per minute)
+  rateLimits: {
+    anthropic: {
+      requestsPerMin: 40,
+      inputTokensPerMin: 100_000,
+    },
+    openai: {
+      requestsPerMin: 60,
+      inputTokensPerMin: 150_000,
+    },
+  },
+
+  // Agent settings
+  agents: {
+    maxQARetries: 2,
+    // Regex patterns that mean "yes, execute"
+    confirmationPattern: /^(go|proceed|yes|do it|continue|approved|execute|run it|let'?s go|ok|okay|sure|confirm|yep|yup|affirmative|start|begin|launch)/i,
   },
 
   // Google Ads
@@ -44,12 +76,6 @@ export const CONFIG = {
   sync: {
     intervalHours: 6,
     lookbackDays: 30,
-  },
-
-  // Rate limiting
-  rateLimit: {
-    maxRequests: 60,
-    windowMs: 60_000,
   },
 
   // Micros conversion
@@ -72,4 +98,9 @@ export function formatMicros(micros: number, currency = 'USD'): string {
     style: 'currency',
     currency,
   }).format(microsToDollars(micros));
+}
+
+// Helper: estimate token count (rough ~4 chars per token)
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
 }

@@ -4,7 +4,47 @@ import { z } from 'zod';
 // Agent Output Schemas — Zod-validated structured output
 // ============================================================
 
-// ResearchAgent output
+// ---- Competitor Deep Analysis (NEW for Phase 3) ----
+
+export const competitorDeepAnalysisSchema = z.object({
+  domain: z.string(),
+  company_name: z.string().optional(),
+  recent_content: z.array(z.object({
+    title: z.string(),
+    url: z.string().optional(),
+    type: z.string(), // blog, case_study, whitepaper, landing_page
+    summary: z.string(),
+    published_date: z.string().optional(),
+  })),
+  hiring_signals: z.array(z.object({
+    role: z.string(),
+    department: z.string().optional(),
+    inference: z.string(), // what this hire tells us about their strategy
+  })),
+  ad_presence: z.object({
+    observed_keywords: z.array(z.string()),
+    ad_copy_themes: z.array(z.string()),
+    estimated_monthly_spend: z.string().optional(), // e.g. "$10K-$50K"
+  }).optional(),
+  strategic_inference: z.string(), // AI's deep reasoning about what this competitor is doing
+  threat_level: z.enum(['low', 'medium', 'high', 'critical']),
+  opportunities_against: z.array(z.string()), // gaps/weaknesses we can exploit
+});
+
+export type CompetitorDeepAnalysis = z.infer<typeof competitorDeepAnalysisSchema>;
+
+export const marketOpportunitySchema = z.object({
+  opportunity: z.string(),
+  reasoning: z.string(),
+  confidence: z.number().min(0).max(1),
+  suggested_action: z.string(),
+  related_competitors: z.array(z.string()),
+});
+
+export type MarketOpportunity = z.infer<typeof marketOpportunitySchema>;
+
+// ---- ResearchAgent Output ----
+
 export const keywordSuggestionSchema = z.object({
   text: z.string(),
   avg_monthly_searches: z.number().nullable(),
@@ -24,17 +64,23 @@ export const researchOutputSchema = z.object({
   keywords: z.array(keywordSuggestionSchema).min(1),
   negative_keyword_suggestions: z.array(z.string()),
   audience_segments: z.array(audienceSegmentSchema),
+  // Basic competitor observations (backward compat)
   competitor_observations: z.array(z.object({
     domain: z.string(),
     observed_keywords: z.array(z.string()).optional(),
     ad_copy_themes: z.array(z.string()).optional(),
   })),
+  // Deep competitor intelligence (Phase 3)
+  competitor_deep_analysis: z.array(competitorDeepAnalysisSchema).optional(),
+  // Market opportunities derived from competitor analysis
+  market_opportunities: z.array(marketOpportunitySchema).optional(),
   strategic_summary: z.string(),
 });
 
 export type ResearchOutput = z.infer<typeof researchOutputSchema>;
 
-// CampaignBuilderAgent output
+// ---- CampaignBuilderAgent Output ----
+
 export const campaignBlueprintAdSchema = z.object({
   headlines: z.array(z.object({
     text: z.string().max(30),
@@ -93,7 +139,32 @@ export const campaignBlueprintSchema = z.object({
 
 export type CampaignBlueprint = z.infer<typeof campaignBlueprintSchema>;
 
-// CopywriterAgent output
+// ---- CopywriterAgent Output (Extended for Phase 3) ----
+
+export const trackingUrlSchema = z.object({
+  base_url: z.string(),
+  utm_source: z.string().default('google'),
+  utm_medium: z.string().default('cpc'),
+  utm_campaign: z.string(),
+  utm_content: z.string().optional(),
+  icp_param: z.string().optional(), // e.g. "cio", "cto", "vp_engineering"
+  custom_params: z.record(z.string()).optional(),
+  full_url: z.string(), // the complete assembled URL
+});
+
+export type TrackingUrl = z.infer<typeof trackingUrlSchema>;
+
+export const suggestedImageSchema = z.object({
+  unsplash_id: z.string(),
+  url: z.string(),
+  thumb_url: z.string(),
+  alt_text: z.string(),
+  photographer: z.string(),
+  relevance_reasoning: z.string(), // why this image fits the ad
+});
+
+export type SuggestedImage = z.infer<typeof suggestedImageSchema>;
+
 export const adCopyVariantsSchema = z.object({
   variants: z.array(z.object({
     headlines: z.array(z.object({
@@ -106,14 +177,17 @@ export const adCopyVariantsSchema = z.object({
     })).min(2).max(4),
     theme: z.string(), // e.g. "benefit-focused", "urgency", "social-proof"
   })),
+  tracking_urls: z.array(trackingUrlSchema).optional(),
+  suggested_images: z.array(suggestedImageSchema).optional(),
   reasoning: z.string(),
 });
 
 export type AdCopyVariants = z.infer<typeof adCopyVariantsSchema>;
 
-// OptimizerAgent output
+// ---- OptimizerAgent Output ----
+
 export const optimizationRecommendationSchema = z.object({
-  action_type: z.string(), // pause_keyword, increase_bid, decrease_budget, etc.
+  action_type: z.string(),
   entity_type: z.string(),
   entity_id: z.string(),
   entity_name: z.string(),
@@ -134,7 +208,8 @@ export const optimizerOutputSchema = z.object({
 
 export type OptimizerOutput = z.infer<typeof optimizerOutputSchema>;
 
-// OrchestratorAgent — intent parsing
+// ---- OrchestratorAgent — Intent Parsing ----
+
 export const userIntentSchema = z.object({
   intent: z.enum([
     'research_keywords',
@@ -155,9 +230,34 @@ export const userIntentSchema = z.object({
     keywords: z.array(z.string()).optional(),
     budget: z.number().optional(),
     geo_targets: z.array(z.string()).optional(),
+    competitor_domains: z.array(z.string()).optional(),
+    landing_page_url: z.string().optional(),
   }),
   follow_up_questions: z.array(z.string()).optional(),
   confidence: z.number().min(0).max(1),
 });
 
 export type UserIntent = z.infer<typeof userIntentSchema>;
+
+// ---- Orchestrator Execution Plan ----
+
+export const executionPlanSchema = z.object({
+  summary: z.string(), // "I'll research keywords for cloud consulting, analyze 3 competitors, then build a Search campaign"
+  steps: z.array(z.object({
+    agent: z.string(), // ResearchAgent, CampaignBuilderAgent, etc.
+    action: z.string(), // what this step will do
+    depends_on: z.array(z.number()).optional(), // step indices this depends on
+  })),
+  suggested_competitors: z.array(z.object({
+    domain: z.string(),
+    reason: z.string(),
+  })).optional(),
+  estimated_budget_range: z.object({
+    min_daily_micros: z.number(),
+    max_daily_micros: z.number(),
+    reasoning: z.string(),
+  }).optional(),
+  needs_user_input: z.array(z.string()).optional(), // things still needed from user
+});
+
+export type ExecutionPlan = z.infer<typeof executionPlanSchema>;

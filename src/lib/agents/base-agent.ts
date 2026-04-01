@@ -4,25 +4,34 @@ import { createAdminClient } from '../supabase-server';
 import { createLogger } from '../utils/logger';
 import { withRetry } from '../utils/retry';
 import { extractJSON } from '../utils/json-parser';
-import { CONFIG } from '../config';
+import { CONFIG, estimateTokens } from '../config';
+import { waitForCapacity, recordRequest } from '../rate-limit';
 
 // ============================================================
 // BaseAdsAgent — Abstract base for all AI agents
-// Adapted from business-model/engine/src/agents/base/base-agent.ts
+// Supports: orchestrator (Opus), strategy (Sonnet), fast (Haiku) tiers
+// Includes: QA feedback loop, rate limiting, token budget tracking
 // ============================================================
 
 export interface AgentConfig {
   name: string;
-  tier: 'strategy' | 'fast';
+  tier: 'orchestrator' | 'strategy' | 'fast';
   temperature?: number;
   maxTokens?: number;
 }
 
-interface AgentCallOptions {
+export interface AgentCallOptions {
   system: string;
   prompt: string;
   maxTokens?: number;
   temperature?: number;
+}
+
+export interface QAError {
+  field: string;
+  message: string;
+  severity: 'error' | 'warning';
+  suggestion?: string;
 }
 
 export abstract class BaseAdsAgent {
@@ -30,7 +39,7 @@ export abstract class BaseAdsAgent {
   protected logger;
   private anthropic: Anthropic;
   private openai: OpenAI;
-  private supabase = createAdminClient();
+  protected supabase = createAdminClient();
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -45,8 +54,12 @@ export abstract class BaseAdsAgent {
     });
   }
 
+  // ============================================================
+  // Core LLM Call Methods
+  // ============================================================
+
   /**
-   * Call Anthropic API with structured JSON output and Zod validation
+   * Call with structured JSON output and Zod validation
    */
   protected async callStructured<T>(
     options: AgentCallOptions,
@@ -70,48 +83,34 @@ export abstract class BaseAdsAgent {
   }
 
   /**
-   * Call with 4-layer model fallback
-   * Anthropic Strategy → Anthropic Fast → OpenAI GPT-4o → OpenAI GPT-4o-mini
+   * Call with model fallback chain (tier-specific)
    */
   private async callWithFallback(options: AgentCallOptions): Promise<string> {
     const modelConfig = CONFIG.models[this.config.tier];
     const maxTokens = options.maxTokens || this.config.maxTokens || modelConfig.maxTokens;
     const temperature = options.temperature ?? this.config.temperature ?? modelConfig.temperature;
 
-    // Layer 1: Primary Anthropic model
+    // Layer 1: Primary model
     try {
-      return await this.callAnthropic(
-        modelConfig.model,
-        options.system,
-        options.prompt,
-        maxTokens,
-        temperature,
-      );
+      if (modelConfig.provider === 'anthropic') {
+        return await this.callAnthropic(modelConfig.model, options.system, options.prompt, maxTokens, temperature);
+      } else {
+        return await this.callOpenAI(modelConfig.model, options.system, options.prompt, maxTokens, temperature);
+      }
     } catch (error) {
       this.logger.warn(`Primary model failed: ${modelConfig.model}`, {
         error: error instanceof Error ? error.message : String(error),
       });
     }
 
-    // Layers 2-4: Fallback chain
-    for (const fallback of CONFIG.models.fallbacks) {
+    // Fallback layers
+    const fallbacks = modelConfig.fallbacks;
+    for (const fallback of fallbacks) {
       try {
         if (fallback.provider === 'anthropic') {
-          return await this.callAnthropic(
-            fallback.model,
-            options.system,
-            options.prompt,
-            maxTokens,
-            temperature,
-          );
+          return await this.callAnthropic(fallback.model, options.system, options.prompt, maxTokens, temperature);
         } else {
-          return await this.callOpenAI(
-            fallback.model,
-            options.system,
-            options.prompt,
-            maxTokens,
-            temperature,
-          );
+          return await this.callOpenAI(fallback.model, options.system, options.prompt, maxTokens, temperature);
         }
       } catch (error) {
         this.logger.warn(`Fallback failed: ${fallback.model}`, {
@@ -120,7 +119,7 @@ export abstract class BaseAdsAgent {
       }
     }
 
-    throw new Error('All model fallbacks exhausted');
+    throw new Error(`All model fallbacks exhausted for ${this.config.name}`);
   }
 
   private async callAnthropic(
@@ -130,6 +129,10 @@ export abstract class BaseAdsAgent {
     maxTokens: number,
     temperature: number,
   ): Promise<string> {
+    // Rate limit check
+    const estimatedInputTokens = estimateTokens(system + prompt);
+    await waitForCapacity('anthropic', estimatedInputTokens);
+
     const endTimer = this.logger.startTimer(`anthropic:${model}`);
 
     const response = await withRetry(
@@ -150,6 +153,9 @@ export abstract class BaseAdsAgent {
       .map((block) => block.text)
       .join('');
 
+    // Track rate limit usage
+    recordRequest('anthropic', response.usage.input_tokens);
+
     // Log to agent_logs
     await this.logCall(model, prompt, text, durationMs, {
       input: response.usage.input_tokens,
@@ -166,24 +172,35 @@ export abstract class BaseAdsAgent {
     maxTokens: number,
     temperature: number,
   ): Promise<string> {
+    // Rate limit check
+    const estimatedInputTokens = estimateTokens(system + prompt);
+    await waitForCapacity('openai', estimatedInputTokens);
+
     const endTimer = this.logger.startTimer(`openai:${model}`);
+
+    // o3 and reasoning models don't support temperature or system messages the same way
+    const isReasoningModel = model.startsWith('o');
 
     const response = await withRetry(
       () =>
         this.openai.chat.completions.create({
           model,
-          max_tokens: maxTokens,
-          temperature,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: prompt },
-          ],
+          max_tokens: isReasoningModel ? undefined : maxTokens,
+          ...(isReasoningModel ? {} : { temperature }),
+          messages: isReasoningModel
+            ? [{ role: 'user', content: `${system}\n\n${prompt}` }]
+            : [
+                { role: 'system', content: system },
+                { role: 'user', content: prompt },
+              ],
         }),
       { maxAttempts: 2 },
     );
 
     const durationMs = endTimer();
     const text = response.choices[0]?.message?.content || '';
+
+    recordRequest('openai', response.usage?.prompt_tokens || 0);
 
     await this.logCall(model, prompt, text, durationMs, {
       input: response.usage?.prompt_tokens || 0,
@@ -193,9 +210,54 @@ export abstract class BaseAdsAgent {
     return text;
   }
 
+  // ============================================================
+  // QA Feedback Loop — Fix errors from QASentinel
+  // ============================================================
+
   /**
-   * Log agent call to Supabase
+   * Handle QA feedback by fixing errors in the output.
+   * Each agent should override fix() with domain-specific logic.
    */
+  async handleQAFeedback<T>(
+    errors: QAError[],
+    originalOutput: T,
+    schema: { parse: (data: unknown) => T },
+  ): Promise<T> {
+    const errorSummary = errors
+      .map((e) => `- [${e.severity}] ${e.field}: ${e.message}${e.suggestion ? ` (Suggestion: ${e.suggestion})` : ''}`)
+      .join('\n');
+
+    this.logger.info(`Fixing ${errors.length} QA errors`, { errors: errorSummary });
+
+    const fixPrompt = `You previously generated output that failed quality checks. Here are the specific errors:
+
+${errorSummary}
+
+Here is your original output:
+${JSON.stringify(originalOutput, null, 2)}
+
+Fix ONLY the issues listed above. Preserve everything else exactly as-is. Return the corrected output as valid JSON.`;
+
+    return this.callStructured<T>(
+      {
+        system: this.getFixSystemPrompt(),
+        prompt: fixPrompt,
+      },
+      schema,
+    );
+  }
+
+  /**
+   * Override in subclasses for domain-specific fix instructions
+   */
+  protected getFixSystemPrompt(): string {
+    return `You are a Google Ads expert fixing quality check errors. You must fix ONLY the specific errors listed and preserve everything else. Return valid JSON matching the exact same schema as the original output.`;
+  }
+
+  // ============================================================
+  // Logging
+  // ============================================================
+
   private async logCall(
     model: string,
     input: string,
@@ -221,9 +283,6 @@ export abstract class BaseAdsAgent {
     }
   }
 
-  /**
-   * Log an error to Supabase
-   */
   protected async logError(action: string, error: Error): Promise<void> {
     try {
       await this.supabase.from('agent_logs').insert({
@@ -234,6 +293,19 @@ export abstract class BaseAdsAgent {
       });
     } catch {
       this.logger.error('Failed to log error');
+    }
+  }
+
+  protected async logAction(action: string, summary: string): Promise<void> {
+    try {
+      await this.supabase.from('agent_logs').insert({
+        agent_name: this.config.name,
+        action,
+        output_summary: summary.slice(0, 500),
+        status: 'success',
+      });
+    } catch {
+      // non-critical
     }
   }
 }

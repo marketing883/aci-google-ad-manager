@@ -300,12 +300,14 @@ export async function executeTool(
       }
 
       // Store in cache
-      await supabase.from('keyword_research').insert({
-        query: keywords.join(', '),
-        results: { dataforseo: results, google_ads: googleKeywords },
-        source: 'harness_research',
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      }).catch(() => {});
+      try {
+        await supabase.from('keyword_research').insert({
+          query: keywords.join(', '),
+          results: { dataforseo: results, google_ads: googleKeywords } as unknown as Record<string, unknown>,
+          source: 'harness_research',
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+      } catch { /* non-critical cache write */ }
 
       const totalKeywords = results.reduce((sum, r) => sum + (r.related?.length || 0), 0);
       const summary = `Found ${totalKeywords} related keywords across ${results.length} seed terms. Google Ads Planner returned ${googleKeywords.length} additional ideas.`;
@@ -336,11 +338,13 @@ export async function executeTool(
         for (const comp of result.competitors) {
           if (comp.domain && !uniqueDomains.has(comp.domain)) {
             uniqueDomains.add(comp.domain);
-            await supabase.from('competitor_data').upsert({
-              domain: comp.domain,
-              company_name: comp.title,
-              notes: `Ranks for: ${result.keyword}`,
-            }, { onConflict: 'domain' }).catch(() => {});
+            try {
+              await supabase.from('competitor_data').upsert({
+                domain: comp.domain,
+                company_name: comp.title,
+                notes: `Ranks for: ${result.keyword}`,
+              }, { onConflict: 'domain' });
+            } catch { /* non-critical */ }
           }
         }
       }

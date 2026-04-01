@@ -298,11 +298,15 @@ export class CampaignHarness {
 
           yield { type: 'tool_done', tool: toolName, summary: result };
 
-          // Add tool result for next loop iteration
+          // Add tool result for next loop iteration — include data so AI can reference IDs
+          const toolResultContent = data
+            ? `${result}\n\nData: ${JSON.stringify(data)}`
+            : result;
+
           toolResults.push({
             type: 'tool_result',
             tool_use_id: block.id,
-            content: result,
+            content: toolResultContent,
           });
         }
       }

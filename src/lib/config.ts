@@ -8,7 +8,7 @@ export const CONFIG = {
     // Orchestrator tier — highest reasoning for intent parsing, planning, coordination
     orchestrator: {
       provider: 'anthropic' as const,
-      model: 'claude-opus-4-0-20250514',
+      model: 'claude-opus-4-20250514',
       maxTokens: 16384,
       temperature: 0.5,
       fallbacks: [

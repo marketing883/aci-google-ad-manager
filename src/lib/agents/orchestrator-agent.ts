@@ -138,21 +138,81 @@ export class OrchestratorAgent extends BaseAdsAgent {
       .map((m) => `${m.role}: ${m.content}`)
       .join('\n');
 
+    const intentParsingPrompt = `You are a JSON-only intent parser for a Google Ads management system. You MUST respond with ONLY a valid JSON object — no explanations, no markdown, no text before or after the JSON.
+
+Valid intent values: "research_keywords", "build_campaign", "optimize_campaigns", "generate_ad_copy", "check_performance", "modify_campaign", "pause_resume", "general_question", "unknown"
+
+JSON schema:
+{
+  "intent": "<one of the valid intents above>",
+  "entities": {
+    "business_description": "<string or null>",
+    "target_audience": "<string or null>",
+    "campaign_id": "<string or null>",
+    "campaign_name": "<string or null>",
+    "keywords": ["<keyword1>", "<keyword2>"],
+    "budget": <number or null>,
+    "geo_targets": ["<location1>"],
+    "competitor_domains": ["<domain1>"],
+    "landing_page_url": "<string or null>"
+  },
+  "follow_up_questions": ["<question1>", "<question2>"],
+  "confidence": <0.0 to 1.0>
+}
+
+Rules:
+- If user wants to create/build/launch a campaign → intent = "build_campaign"
+- If user wants keyword research or competitor analysis → intent = "research_keywords"
+- If info is missing (no budget, no audience, no geo), add follow_up_questions and set confidence low
+- Extract ALL mentioned entities from the message`;
+
     const prompt = `## Recent Conversation
 ${recentHistory || 'No previous conversation'}
 
 ## Latest User Message
 ${message}
 
-## Instructions
-Parse the user's intent and extract all entities mentioned. If critical information is missing for executing the intent, include follow_up_questions. Set confidence based on how complete the information is.
+Respond with ONLY the JSON object. No other text.`;
 
-Return JSON matching the userIntent schema.`;
+    try {
+      return await this.callStructured<UserIntent>(
+        { system: intentParsingPrompt, prompt },
+        userIntentSchema,
+      );
+    } catch (parseError) {
+      // Fallback: construct intent manually if JSON parsing fails
+      this.logger.warn('Intent parsing failed, using fallback', {
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+      });
 
-    return this.callStructured<UserIntent>(
-      { system: SYSTEM_PROMPT, prompt },
-      userIntentSchema,
-    );
+      const lowerMsg = message.toLowerCase();
+      let intent: string = 'general_question';
+      if (lowerMsg.includes('campaign') || lowerMsg.includes('create') || lowerMsg.includes('build') || lowerMsg.includes('launch')) {
+        intent = 'build_campaign';
+      } else if (lowerMsg.includes('keyword') || lowerMsg.includes('research') || lowerMsg.includes('competitor')) {
+        intent = 'research_keywords';
+      } else if (lowerMsg.includes('optimize') || lowerMsg.includes('improve')) {
+        intent = 'optimize_campaigns';
+      } else if (lowerMsg.includes('ad copy') || lowerMsg.includes('write ads') || lowerMsg.includes('headlines')) {
+        intent = 'generate_ad_copy';
+      } else if (lowerMsg.includes('performance') || lowerMsg.includes('metrics') || lowerMsg.includes('stats')) {
+        intent = 'check_performance';
+      }
+
+      return {
+        intent: intent as UserIntent['intent'],
+        entities: {
+          business_description: message,
+        },
+        follow_up_questions: [
+          'What is your daily budget for this campaign?',
+          'Who is your target audience?',
+          'What geographic locations should we target?',
+          'Do you have a landing page URL?',
+        ],
+        confidence: 0.4,
+      };
+    }
   }
 
   /**

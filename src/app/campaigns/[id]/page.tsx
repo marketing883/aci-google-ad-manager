@@ -88,23 +88,72 @@ function AdPreviewCard({ ad, onDelete }: {
   ad: AdGroupDetail['ads'][0];
   onDelete: (id: string) => void;
 }) {
-  const displayUrl = ad.final_urls?.[0]
-    ? new URL(ad.final_urls[0]).hostname + (ad.path1 ? `/${ad.path1}` : '') + (ad.path2 ? `/${ad.path2}` : '')
-    : 'example.com';
+  const [previewIndex, setPreviewIndex] = useState(0);
+
+  // Google RSA shows max 3 headlines and 2 descriptions at a time
+  // Generate different combinations to preview
+  const headlines = ad.headlines || [];
+  const descriptions = ad.descriptions || [];
+  const totalCombinations = Math.max(1, Math.ceil(headlines.length / 3));
+
+  const currentHeadlines = headlines.slice(previewIndex * 3, previewIndex * 3 + 3);
+  const currentDescs = descriptions.slice(
+    Math.min(previewIndex * 2, Math.max(0, descriptions.length - 2)),
+    Math.min(previewIndex * 2 + 2, descriptions.length)
+  );
+
+  // If current slice is empty, wrap around
+  const showHeadlines = currentHeadlines.length > 0 ? currentHeadlines : headlines.slice(0, 3);
+  const showDescs = currentDescs.length > 0 ? currentDescs : descriptions.slice(0, 2);
+
+  let displayUrl = 'example.com';
+  try {
+    if (ad.final_urls?.[0]) {
+      displayUrl = new URL(ad.final_urls[0]).hostname + (ad.path1 ? `/${ad.path1}` : '') + (ad.path2 ? `/${ad.path2}` : '');
+    }
+  } catch { /* invalid URL */ }
 
   return (
-    <div className="bg-white rounded-lg p-4 mb-2 relative group">
+    <div className="bg-white rounded-lg p-4 relative group">
+      {/* Delete button */}
       <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
         <button onClick={() => onDelete(ad.id)} className="p-1 bg-red-100 hover:bg-red-200 rounded text-red-600"><Trash2 className="w-3 h-3" /></button>
       </div>
-      <p className="text-xs text-gray-500 mb-0.5">Ad &middot; {ad.status}</p>
-      <p className="text-blue-700 text-sm font-medium leading-snug">
-        {ad.headlines.map((h) => h.text).join(' | ')}
+
+      {/* Sponsored label */}
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-[10px] font-bold text-gray-800 bg-gray-200 px-1 rounded">Sponsored</span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded ${ad.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{ad.status}</span>
+      </div>
+
+      {/* Display URL */}
+      <p className="text-green-800 text-xs flex items-center gap-1">
+        <span className="inline-block w-4 h-4 bg-green-100 rounded-full text-center text-[8px] leading-4 font-bold text-green-800">A</span>
+        {displayUrl}
       </p>
-      <p className="text-green-700 text-xs mt-0.5">{displayUrl}</p>
-      <p className="text-gray-600 text-xs mt-1 leading-relaxed">
-        {ad.descriptions.map((d) => d.text).join(' ')}
+
+      {/* Headlines — max 3 shown, pipe-separated like Google */}
+      <p className="text-blue-800 text-base font-medium leading-snug mt-1 hover:underline cursor-default">
+        {showHeadlines.map((h) => h.text).join(' | ')}
       </p>
+
+      {/* Descriptions — max 2 shown */}
+      <p className="text-gray-700 text-xs mt-1 leading-relaxed">
+        {showDescs.map((d) => d.text).join(' ')}
+      </p>
+
+      {/* Combination navigator */}
+      {totalCombinations > 1 && (
+        <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-200">
+          <span className="text-[10px] text-gray-400">
+            Preview {previewIndex + 1}/{totalCombinations} &middot; {headlines.length} headlines, {descriptions.length} descriptions
+          </span>
+          <div className="flex gap-1">
+            <button onClick={() => setPreviewIndex((p) => (p - 1 + totalCombinations) % totalCombinations)} className="px-2 py-0.5 text-xs bg-gray-100 hover:bg-gray-200 rounded text-gray-600">&larr;</button>
+            <button onClick={() => setPreviewIndex((p) => (p + 1) % totalCombinations)} className="px-2 py-0.5 text-xs bg-gray-100 hover:bg-gray-200 rounded text-gray-600">&rarr;</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

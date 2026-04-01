@@ -1,28 +1,16 @@
 import { NextResponse } from 'next/server';
-import { CONFIG } from '@/lib/config';
+import { buildAuthUrl } from '@/lib/google-ads/auth';
 
 export async function POST() {
   try {
-    const clientId = process.env.GOOGLE_ADS_CLIENT_ID;
-    if (!clientId) {
+    if (!process.env.GOOGLE_ADS_CLIENT_ID) {
       return NextResponse.json(
-        { error: 'Google Ads Client ID not configured' },
+        { error: 'Google Ads Client ID not configured. Add GOOGLE_ADS_CLIENT_ID to .env.local' },
         { status: 500 },
       );
     }
 
-    // Build OAuth2 authorization URL
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: CONFIG.googleAds.redirectUri,
-      response_type: 'code',
-      scope: CONFIG.googleAds.scopes.join(' '),
-      access_type: 'offline',
-      prompt: 'consent',
-    });
-
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-
+    const authUrl = buildAuthUrl();
     return NextResponse.json({ auth_url: authUrl });
   } catch (error) {
     return NextResponse.json(

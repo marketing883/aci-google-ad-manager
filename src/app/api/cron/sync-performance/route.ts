@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { syncPerformanceData, importCampaignsFromGoogle } from '@/lib/google-ads/sync';
 
 export async function POST(request: NextRequest) {
   // Verify cron secret
@@ -8,15 +9,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // TODO: Implement performance sync
-    // 1. Fetch active Google Ads accounts
-    // 2. For each account, pull performance data from Google Ads Reporting API
-    // 3. Upsert into performance_snapshots table
-    // 4. Update last_synced_at on accounts and campaigns
+    // Import any new campaigns from Google Ads
+    const imported = await importCampaignsFromGoogle();
+
+    // Sync performance data for the last 7 days
+    const result = await syncPerformanceData(7);
 
     return NextResponse.json({
       success: true,
-      message: 'Performance sync completed',
+      campaigns_imported: imported,
+      ...result,
       synced_at: new Date().toISOString(),
     });
   } catch (error) {

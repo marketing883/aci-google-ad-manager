@@ -101,21 +101,22 @@ export class OrchestratorAgent extends BaseAdsAgent {
         return this.refinePlan(message, currentPlan, currentIntent!, chatHistory);
       }
 
+      // If we're in asking_questions state, user is answering — merge answers and generate plan
+      if (currentState === 'asking_questions' && currentIntent) {
+        const answersIntent = await this.parseIntent(message, chatHistory);
+        const mergedIntent = this.mergeIntentWithAnswers(currentIntent, answersIntent, message);
+        return this.generatePlan(mergedIntent, chatHistory);
+      }
+
       // Parse intent from new message
       const intent = await this.parseIntent(message, chatHistory);
 
-      // If questions need to be asked
+      // If critical info is missing, ask questions first
       if (intent.follow_up_questions && intent.follow_up_questions.length > 0 && intent.confidence < 0.8) {
         return this.askQuestions(intent);
       }
 
-      // If we're in asking_questions state, user is answering — merge and generate plan
-      if (currentState === 'asking_questions' && currentIntent) {
-        const mergedIntent = this.mergeIntentWithAnswers(currentIntent, intent, message);
-        return this.generatePlan(mergedIntent, chatHistory);
-      }
-
-      // Generate plan for new intent
+      // Enough info — generate plan directly
       return this.generatePlan(intent, chatHistory);
     } catch (error) {
       this.logger.error('Orchestrator error', {

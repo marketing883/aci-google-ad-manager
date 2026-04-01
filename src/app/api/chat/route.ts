@@ -1,23 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { orchestratorAgent, type OrchestratorState } from '@/lib/agents/orchestrator-agent';
+import { createAdminClient } from '@/lib/supabase-server';
+import type { ExecutionPlan, UserIntent } from '@/schemas/agent-output';
 
 export async function POST(request: NextRequest) {
   try {
-    const { message } = await request.json();
+    const { message, state, plan, intent } = await request.json();
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    // TODO: Implement OrchestratorAgent
-    // 1. Parse user intent
-    // 2. Route to appropriate agent(s)
-    // 3. Collect results and create approval items
-    // 4. Store chat messages
-    // 5. Return response
+    const supabase = createAdminClient();
+
+    // Load recent chat history
+    const { data: history } = await supabase
+      .from('chat_messages')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    const chatHistory = (history || []).reverse();
+
+    // Store user message
+    await supabase.from('chat_messages').insert({
+      role: 'user',
+      content: message,
+    });
+
+    // Process through Orchestrator
+    const response = await orchestratorAgent.processMessage(
+      message,
+      chatHistory,
+      (state as OrchestratorState) || 'idle',
+      plan as ExecutionPlan | undefined,
+      intent as UserIntent | undefined,
+    );
+
+    // Store assistant response
+    await supabase.from('chat_messages').insert({
+      role: 'assistant',
+      content: response.message,
+      metadata: {
+        state: response.state,
+        has_plan: !!response.plan,
+        approval_ids: response.approval_ids,
+      },
+      related_approval_ids: response.approval_ids || [],
+    });
 
     return NextResponse.json({
-      response: 'Chat API is not yet connected. Please configure your AI keys in Settings.',
-      approval_ids: [],
+      response: response.message,
+      state: response.state,
+      plan: response.plan,
+      intent: response.intent,
+      approval_ids: response.approval_ids || [],
     });
   } catch (error) {
     return NextResponse.json(

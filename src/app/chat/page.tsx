@@ -11,6 +11,28 @@ interface Message {
   timestamp: Date;
 }
 
+function LoadingStatus({ chatState }: { chatState: string }) {
+  const messages: Record<string, string[]> = {
+    idle: ['Thinking...', 'Analyzing your request...', 'Understanding intent...'],
+    asking_questions: ['Processing your answers...', 'Extracting details...'],
+    presenting_plan: ['Building execution plan...', 'Evaluating approach...'],
+    refining: ['Refining the plan...', 'Incorporating your feedback...'],
+    executing: ['Running agents...', 'Researching keywords...', 'Building campaign...', 'Generating ad copy...', 'Running quality checks...'],
+  };
+
+  const [msgIndex, setMsgIndex] = useState(0);
+  const stateMessages = messages[chatState] || messages.idle;
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setMsgIndex((prev) => (prev + 1) % stateMessages.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [stateMessages]);
+
+  return <span className="text-xs text-gray-400 animate-pulse">{stateMessages[msgIndex]}</span>;
+}
+
 const SUGGESTIONS = [
   'Research keywords for cloud consulting services targeting enterprises',
   'Build a search campaign for our DevOps services with $50/day budget',
@@ -237,10 +259,13 @@ export default function ChatPage() {
         {isLoading && (
           <div className="flex justify-start">
             <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
-              <div className="flex gap-1.5">
-                <div className="w-2 h-2 bg-gray-600 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-gray-600 rounded-full animate-bounce [animation-delay:150ms]" />
-                <div className="w-2 h-2 bg-gray-600 rounded-full animate-bounce [animation-delay:300ms]" />
+              <div className="flex items-center gap-3">
+                <div className="flex gap-1.5">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" />
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce [animation-delay:150ms]" />
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce [animation-delay:300ms]" />
+                </div>
+                <LoadingStatus chatState={chatState} />
               </div>
             </div>
           </div>

@@ -61,21 +61,24 @@ export const audienceSegmentSchema = z.object({
 });
 
 export const researchOutputSchema = z.object({
-  keywords: z.array(keywordSuggestionSchema).min(1),
-  negative_keyword_suggestions: z.array(z.string()),
-  audience_segments: z.array(audienceSegmentSchema),
-  // Basic competitor observations (backward compat)
+  keywords: z.array(keywordSuggestionSchema).optional().default([]),
+  negative_keyword_suggestions: z.array(z.string()).optional().default([]),
+  audience_segments: z.array(audienceSegmentSchema).optional().default([]),
   competitor_observations: z.array(z.object({
     domain: z.string(),
     observed_keywords: z.array(z.string()).optional(),
     ad_copy_themes: z.array(z.string()).optional(),
-  })),
-  // Deep competitor intelligence (Phase 3)
+  })).optional().default([]),
   competitor_deep_analysis: z.array(competitorDeepAnalysisSchema).optional(),
-  // Market opportunities derived from competitor analysis
-  market_opportunities: z.array(marketOpportunitySchema).optional(),
-  strategic_summary: z.string(),
-});
+  market_opportunities: z.array(z.object({
+    opportunity: z.string(),
+    reasoning: z.string().optional().default(''),
+    confidence: z.number().min(0).max(1).optional().default(0.5),
+    suggested_action: z.string().optional().default(''),
+    related_competitors: z.array(z.string()).optional().default([]),
+  })).optional(),
+  strategic_summary: z.string().optional().default('Research completed.'),
+}).passthrough(); // Allow extra fields the AI might return
 
 export type ResearchOutput = z.infer<typeof researchOutputSchema>;
 

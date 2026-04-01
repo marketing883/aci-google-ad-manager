@@ -3,6 +3,9 @@ import { orchestratorAgent, type OrchestratorState } from '@/lib/agents/orchestr
 import { createAdminClient } from '@/lib/supabase-server';
 import type { ExecutionPlan, UserIntent } from '@/schemas/agent-output';
 
+// Allow longer execution for agent pipelines
+export const maxDuration = 120; // 2 minutes (Vercel Pro)
+
 export async function POST(request: NextRequest) {
   try {
     const { message, state, plan, intent } = await request.json();

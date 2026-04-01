@@ -310,7 +310,7 @@ Refine the execution plan based on the user's feedback. Keep what works, change 
     this.logger.info('Executing approved plan', { steps: plan.steps.length });
 
     const approvalIds: string[] = [];
-    let statusMessages: string[] = ['Executing your plan...\n'];
+    let statusMessages: string[] = ['**Executing your plan...**\n'];
 
     try {
       // Merge plan's suggested competitors with user-provided ones
@@ -429,8 +429,12 @@ Refine the execution plan based on the user's feedback. Keep what works, change 
               statusMessages.push(`  Agent "${step.agent}" — will be available in a future update`);
           }
         } catch (stepError) {
-          statusMessages.push(`  Error in ${step.agent}: ${stepError instanceof Error ? stepError.message : 'Unknown error'}. Continuing with next step.`);
-          this.logger.error(`Step failed: ${step.agent}`, { error: stepError instanceof Error ? stepError.message : String(stepError) });
+          const errMsg = stepError instanceof Error ? stepError.message : String(stepError);
+          // Show clean error, not raw Zod validation dumps
+          const cleanError = errMsg.length > 200 ? errMsg.slice(0, 150) + '... (see Agent Logs for details)' : errMsg;
+          statusMessages.push(`  ⚠ ${step.agent} encountered an issue: ${cleanError}`);
+          statusMessages.push(`  Continuing with next step...`);
+          this.logger.error(`Step failed: ${step.agent}`, { error: errMsg });
         }
       }
 
@@ -563,7 +567,7 @@ Return ONLY the JSON with fields that have values. Example: {"budget": 50, "targ
       });
     }
 
-    msg += `\nSay **"go"**, **"proceed"**, or **"yes"** to execute, or tell me what to change.`;
+    msg += `\nConfirm to execute, or tell me what you'd like to change.`;
 
     return msg;
   }

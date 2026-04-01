@@ -1,8 +1,70 @@
-import Link from 'next/link';
-import { ArrowLeft, Check, X, Pencil } from 'lucide-react';
+'use client';
 
-export default async function ApprovalDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+import { ArrowLeft, Check, X, Pencil, Loader2 } from 'lucide-react';
+
+interface ApprovalDetail {
+  id: string;
+  action_type: string;
+  entity_type: string;
+  payload: Record<string, unknown>;
+  previous_state: Record<string, unknown> | null;
+  status: string;
+  ai_reasoning: string | null;
+  confidence_score: number | null;
+  priority: string;
+  agent_name: string | null;
+  reviewer_notes: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export default function ApprovalDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const id = params.id as string;
+  const [item, setItem] = useState<ApprovalDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showRejectInput, setShowRejectInput] = useState(false);
+
+  useEffect(() => { fetchDetail(); }, [id]);
+
+  async function fetchDetail() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/approvals/${id}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setItem(data);
+    } catch { setItem(null); }
+    setLoading(false);
+  }
+
+  async function handleApprove() {
+    setActionLoading('approve');
+    try {
+      await fetch(`/api/approvals/${id}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      router.push('/approvals');
+    } catch { /* ignore */ }
+    setActionLoading(null);
+  }
+
+  async function handleReject() {
+    if (!rejectReason.trim()) return;
+    setActionLoading('reject');
+    try {
+      await fetch(`/api/approvals/${id}/reject`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewer_notes: rejectReason }) });
+      router.push('/approvals');
+    } catch { /* ignore */ }
+    setActionLoading(null);
+  }
+
+  if (loading) return <div className="text-gray-500 text-center py-12">Loading...</div>;
+  if (!item) return <div className="text-red-400 text-center py-12">Approval item not found</div>;
 
   return (
     <div>
@@ -10,7 +72,10 @@ export default async function ApprovalDetailPage({ params }: { params: Promise<{
         <Link href="/approvals" className="p-2 hover:bg-gray-800 rounded-lg transition-colors">
           <ArrowLeft className="w-5 h-5 text-gray-400" />
         </Link>
-        <h1 className="text-2xl font-bold">Approval Detail</h1>
+        <div>
+          <h1 className="text-2xl font-bold">{item.action_type.replace(/_/g, ' ')}</h1>
+          <p className="text-sm text-gray-500">{item.entity_type} &bull; {item.agent_name || 'Manual'} &bull; {new Date(item.created_at).toLocaleString()}</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -20,51 +85,67 @@ export default async function ApprovalDetailPage({ params }: { params: Promise<{
           <div className="grid grid-cols-2 gap-4">
             <div>
               <h3 className="text-sm text-gray-400 mb-2">Before</h3>
-              <div className="bg-gray-800 rounded-lg p-4 text-sm font-mono text-gray-300 min-h-[200px]">
-                {/* Previous state will render here */}
-                <span className="text-gray-600">No previous state</span>
-              </div>
+              <pre className="bg-gray-800 rounded-lg p-4 text-sm font-mono text-gray-300 min-h-[200px] overflow-auto whitespace-pre-wrap">
+                {item.previous_state ? JSON.stringify(item.previous_state, null, 2) : 'New entity (no previous state)'}
+              </pre>
             </div>
             <div>
               <h3 className="text-sm text-gray-400 mb-2">After</h3>
-              <div className="bg-gray-800 rounded-lg p-4 text-sm font-mono text-green-300 min-h-[200px]">
-                {/* Proposed payload will render here */}
-                <span className="text-gray-600">Loading...</span>
-              </div>
+              <pre className="bg-gray-800 rounded-lg p-4 text-sm font-mono text-green-300 min-h-[200px] overflow-auto whitespace-pre-wrap">
+                {JSON.stringify(item.payload, null, 2)}
+              </pre>
             </div>
           </div>
         </div>
 
-        {/* Approval Info + Actions */}
+        {/* Info + Actions */}
         <div className="space-y-4">
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
             <h2 className="text-lg font-semibold mb-4">AI Reasoning</h2>
-            <p className="text-gray-400 text-sm">
-              Loading reasoning...
-            </p>
-            <div className="mt-4 flex items-center gap-2">
-              <span className="text-sm text-gray-400">Confidence:</span>
-              <div className="flex-1 h-2 bg-gray-800 rounded-full">
-                <div className="h-2 bg-blue-500 rounded-full" style={{ width: '0%' }} />
+            <p className="text-gray-400 text-sm">{item.ai_reasoning || 'No reasoning provided'}</p>
+            {item.confidence_score !== null && (
+              <div className="mt-4 flex items-center gap-2">
+                <span className="text-sm text-gray-400">Confidence:</span>
+                <div className="flex-1 h-2 bg-gray-800 rounded-full">
+                  <div className={`h-2 rounded-full ${item.confidence_score > 0.7 ? 'bg-green-500' : item.confidence_score > 0.4 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${item.confidence_score * 100}%` }} />
+                </div>
+                <span className="text-sm text-gray-400">{(item.confidence_score * 100).toFixed(0)}%</span>
               </div>
-              <span className="text-sm text-gray-400">—</span>
-            </div>
+            )}
+            {item.error_message && (
+              <div className="mt-3 p-2 bg-red-900/30 border border-red-800 rounded text-sm text-red-300">{item.error_message}</div>
+            )}
           </div>
 
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
-            <button className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
-              <Check className="w-4 h-4" />
-              Approve
-            </button>
-            <button className="w-full py-2.5 bg-gray-800 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
-              <Pencil className="w-4 h-4" />
-              Edit & Approve
-            </button>
-            <button className="w-full py-2.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
-              <X className="w-4 h-4" />
-              Reject
-            </button>
-          </div>
+          {item.status === 'pending' && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
+              <button onClick={handleApprove} disabled={!!actionLoading} className="w-full py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
+                {actionLoading === 'approve' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                Approve & Apply
+              </button>
+
+              {!showRejectInput ? (
+                <button onClick={() => setShowRejectInput(true)} className="w-full py-2.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
+                  <X className="w-4 h-4" />
+                  Reject
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Reason for rejection (required)" rows={3} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 resize-none" />
+                  <button onClick={handleReject} disabled={!rejectReason.trim() || !!actionLoading} className="w-full py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
+                    {actionLoading === 'reject' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Rejection'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {item.status !== 'pending' && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <p className="text-sm text-gray-400">Status: <span className="font-medium text-white capitalize">{item.status}</span></p>
+              {item.reviewer_notes && <p className="text-sm text-gray-500 mt-2">Notes: {item.reviewer_notes}</p>}
+            </div>
+          )}
         </div>
       </div>
     </div>

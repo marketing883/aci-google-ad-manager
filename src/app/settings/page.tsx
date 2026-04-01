@@ -1,7 +1,55 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Settings, Link2, Brain, Clock, Bell } from 'lucide-react';
+import { Settings, Link2, Brain, Clock, Loader2, CheckCircle } from 'lucide-react';
 
 export default function SettingsPage() {
+  const [settings, setSettings] = useState<Record<string, unknown>>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    fetchSettings();
+    checkConnection();
+  }, []);
+
+  async function fetchSettings() {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      setSettings(data);
+    } catch { /* ignore */ }
+  }
+
+  async function checkConnection() {
+    try {
+      const res = await fetch('/api/google-ads/auth/status');
+      const data = await res.json();
+      setConnected(data.connected);
+    } catch { /* ignore */ }
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch { /* ignore */ }
+    setSaving(false);
+  }
+
+  function updateSetting(key: string, value: unknown) {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+  }
+
   return (
     <div>
       <div className="flex items-center gap-3 mb-8">
@@ -18,17 +66,13 @@ export default function SettingsPage() {
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-400 text-sm">Connect your Google Ads account to manage campaigns.</p>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="w-2 h-2 rounded-full bg-red-500" />
-                <span className="text-sm text-red-400">Not Connected</span>
+              <div className="flex items-center gap-2 mt-1">
+                <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className={`text-sm ${connected ? 'text-green-400' : 'text-red-400'}`}>{connected ? 'Connected' : 'Not Connected'}</span>
               </div>
             </div>
-            <Link
-              href="/settings/connection"
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              Connect Account
+            <Link href="/settings/connection" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors">
+              {connected ? 'Manage Connection' : 'Connect Account'}
             </Link>
           </div>
         </div>
@@ -39,64 +83,57 @@ export default function SettingsPage() {
             <Brain className="w-5 h-5 text-gray-400" />
             <h2 className="text-lg font-semibold">AI Configuration</h2>
           </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Primary AI Model</label>
+            <select value={settings.default_ai_model as string || 'sonnet'} onChange={(e) => updateSetting('default_ai_model', e.target.value)} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="sonnet">Claude Sonnet 4 (Recommended)</option>
+              <option value="haiku">Claude Haiku 3.5 (Faster)</option>
+              <option value="gpt4o">GPT-4o (Fallback)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* QA Budget Thresholds */}
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Clock className="w-5 h-5 text-gray-400" />
+            <h2 className="text-lg font-semibold">Budget Safety (QA Sentinel)</h2>
+          </div>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Primary AI Model</label>
-              <select className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="sonnet">Claude Sonnet 4 (Recommended)</option>
-                <option value="haiku">Claude Haiku 3.5 (Faster)</option>
-                <option value="gpt4o">GPT-4o (Fallback)</option>
-              </select>
+              <label className="block text-sm text-gray-400 mb-1">Warning threshold ($/day)</label>
+              <input type="number" value={typeof settings.qa_warn_budget_daily_micros === 'number' ? settings.qa_warn_budget_daily_micros / 1_000_000 : 500} onChange={(e) => updateSetting('qa_warn_budget_daily_micros', parseFloat(e.target.value) * 1_000_000)} className="w-40 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Hard block threshold ($/day)</label>
+              <input type="number" value={typeof settings.qa_block_budget_daily_micros === 'number' ? settings.qa_block_budget_daily_micros / 1_000_000 : 2000} onChange={(e) => updateSetting('qa_block_budget_daily_micros', parseFloat(e.target.value) * 1_000_000)} className="w-40 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Max keyword bid ($)</label>
+              <input type="number" value={typeof settings.qa_max_keyword_bid_micros === 'number' ? settings.qa_max_keyword_bid_micros / 1_000_000 : 50} onChange={(e) => updateSetting('qa_max_keyword_bid_micros', parseFloat(e.target.value) * 1_000_000)} className="w-40 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
         </div>
 
-        {/* Automation Settings */}
+        {/* Automation */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <Clock className="w-5 h-5 text-gray-400" />
-            <h2 className="text-lg font-semibold">Automation</h2>
-          </div>
+          <h2 className="text-lg font-semibold mb-4">Automation</h2>
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">Auto-approve low-risk changes</p>
-                <p className="text-xs text-gray-500">Bid adjustments within threshold will be applied automatically</p>
-              </div>
-              <button className="w-11 h-6 bg-gray-700 rounded-full relative transition-colors">
-                <div className="w-5 h-5 bg-gray-400 rounded-full absolute left-0.5 top-0.5 transition-transform" />
-              </button>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Auto-approve bid threshold (%)</label>
-              <input
-                type="number"
-                defaultValue={10}
-                className="w-32 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
             <div>
               <label className="block text-sm text-gray-400 mb-1">Performance sync interval</label>
-              <select className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <select value={settings.sync_interval_hours as string || '6'} onChange={(e) => updateSetting('sync_interval_hours', parseInt(e.target.value))} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="6">Every 6 hours</option>
                 <option value="12">Every 12 hours</option>
                 <option value="24">Once daily</option>
               </select>
             </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Optimizer run time</label>
-              <select className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="8">8:00 AM daily</option>
-                <option value="9">9:00 AM daily</option>
-                <option value="manual">Manual only</option>
-              </select>
-            </div>
           </div>
         </div>
 
-        {/* Save */}
-        <div className="flex justify-end">
-          <button className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors">
+        <div className="flex items-center justify-end gap-3">
+          {saved && <span className="flex items-center gap-1 text-green-400 text-sm"><CheckCircle className="w-4 h-4" /> Saved</span>}
+          <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             Save Settings
           </button>
         </div>

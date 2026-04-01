@@ -145,14 +145,21 @@ export class ApprovalEngine {
     }
 
     try {
-      // TODO: Route to appropriate handler based on action_type
-      // e.g., create_campaign → GoogleAdsClient.createCampaign(item.payload)
-      //       update_bid → GoogleAdsClient.updateBid(item.payload)
-      //       pause_keyword → GoogleAdsClient.pauseKeyword(item.payload)
+      logger.info(`Applying: ${item.action_type} for ${item.entity_type}`, { id });
 
-      logger.info(`Applying: ${item.action_type} for ${item.entity_type}`, {
-        id,
-        payload: item.payload,
+      // Route to Google Ads sync handler
+      const { pushChangeToGoogle } = await import('./google-ads/sync');
+      const result = await pushChangeToGoogle(
+        item.action_type,
+        item.payload as Record<string, unknown>,
+      );
+
+      if (!result.success) {
+        throw new Error(result.error || 'Google Ads push failed');
+      }
+
+      logger.info(`Applied successfully: ${item.action_type}`, {
+        google_resource: result.google_resource_name,
       });
 
       // Mark as applied

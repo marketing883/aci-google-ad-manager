@@ -12,7 +12,9 @@
       "Bash(git --version)",
       "Bash(git config:*)",
       "Bash(git credential-manager:*)",
-      "Bash(1:*)"
+      "Bash(1:*)",
+      "Bash(grep -n \"onSubmit\\\\|onClick\\\\|handleSubmit\\\\|handleCreate\" /c/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/src/app/campaigns/[id]/edit/page.tsx)",
+      "Bash(grep -n \"onSubmit\\\\|onClick\\\\|handleApprove\\\\|handleReject\" /c/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/src/app/approvals/[id]/page.tsx)"
     ]
   }
 }

@@ -163,7 +163,9 @@ export class QASentinel {
         const ad = ag.ads[j];
         const adPrefix = `${prefix}.ads[${j}]`;
 
-        this.validateAdCopy(ad, adPrefix, errors);
+        const adResult = this.validateAdCopySync(ad, adPrefix);
+        errors.push(...adResult.errors);
+        warnings.push(...adResult.warnings);
       }
 
       // Validate keywords
@@ -254,14 +256,34 @@ export class QASentinel {
   }
 
   /**
-   * Validate ad copy from CopywriterAgent
+   * Synchronous ad copy validation (used internally by validateCampaignBlueprint)
+   */
+  validateAdCopySync(
+    adCopy: { headlines: Array<{ text: string }>; descriptions: Array<{ text: string }>; final_urls?: string[]; path1?: string; path2?: string },
+    fieldPrefix = 'ad',
+  ): QAResult {
+    const errors: QAError[] = [];
+    return this._validateAdCopyCore(adCopy, fieldPrefix, errors);
+  }
+
+  /**
+   * Validate ad copy from CopywriterAgent (async wrapper for API routes)
    */
   async validateAdCopy(
     adCopy: { headlines: Array<{ text: string }>; descriptions: Array<{ text: string }>; final_urls?: string[]; path1?: string; path2?: string },
     fieldPrefix = 'ad',
-    existingErrors?: QAError[],
   ): Promise<QAResult> {
-    const errors = existingErrors || [];
+    return this._validateAdCopyCore(adCopy, fieldPrefix, []);
+  }
+
+  /**
+   * Core ad copy validation logic
+   */
+  private _validateAdCopyCore(
+    adCopy: { headlines: Array<{ text: string }>; descriptions: Array<{ text: string }>; final_urls?: string[]; path1?: string; path2?: string },
+    fieldPrefix: string,
+    errors: QAError[],
+  ): QAResult {
     const warnings: QAError[] = [];
 
     // Headlines

@@ -1,6 +1,7 @@
 import { BaseAdsAgent } from './base-agent';
 import {
   userIntentSchema, executionPlanSchema,
+  campaignBlueprintSchema, adCopyVariantsSchema, researchOutputSchema,
   type UserIntent, type ExecutionPlan,
 } from '@/schemas/agent-output';
 import { CONFIG } from '../config';
@@ -311,121 +312,124 @@ Refine the execution plan based on the user's feedback. Keep what works, change 
     let statusMessages: string[] = ['Executing your plan...\n'];
 
     try {
-      // Execute steps in order (respecting dependencies)
+      // Merge plan's suggested competitors with user-provided ones
+      const allCompetitorDomains = [
+        ...(intent.entities.competitor_domains || []),
+        ...(plan.suggested_competitors?.map((c) => c.domain) || []),
+      ].filter((v, i, a) => a.indexOf(v) === i); // deduplicate
+
+      // Execute steps sequentially
       let researchResult = null;
       let campaignBlueprint = null;
 
       for (const step of plan.steps) {
         statusMessages.push(`**Step: ${step.action}**`);
 
-        switch (step.agent) {
-          case 'ResearchAgent': {
-            researchResult = await researchAgent.research({
-              business_description: intent.entities.business_description || '',
-              seed_keywords: intent.entities.keywords,
-              competitor_domains: intent.entities.competitor_domains,
-              target_audience: intent.entities.target_audience,
-            });
-
-            // Validate through QA
-            const qaResult = await qaSentinel.validateResearchOutput(researchResult);
-            if (!qaResult.passed) {
-              researchResult = await researchAgent.handleQAFeedback(
-                qaResult.errors,
-                researchResult,
-                (await import('@/schemas/agent-output')).researchOutputSchema,
-              );
-            }
-
-            statusMessages.push(`  Found ${researchResult.keywords.length} keywords, analyzed ${researchResult.competitor_deep_analysis?.length || 0} competitors`);
-            break;
-          }
-
-          case 'CampaignBuilderAgent': {
-            if (!researchResult) {
-              statusMessages.push('  Skipped — no research data available');
-              break;
-            }
-
-            // Use QA retry loop
-            const { output, qaResult, retries } = await qaSentinel.validateAndRetry(
-              () => campaignBuilderAgent.buildCampaign({
-                research: researchResult!,
-                instructions: intent.entities.business_description || '',
+        try {
+          switch (step.agent) {
+            case 'ResearchAgent': {
+              researchResult = await researchAgent.research({
                 business_description: intent.entities.business_description || '',
+                seed_keywords: intent.entities.keywords,
+                competitor_domains: allCompetitorDomains,
                 target_audience: intent.entities.target_audience,
-                budget_daily_dollars: intent.entities.budget,
-                landing_page_url: intent.entities.landing_page_url,
-                geo_targets: intent.entities.geo_targets?.map((g) => ({ country: g })),
-                language_targets: ['en'],
-              }),
-              (errors, original) => campaignBuilderAgent.handleQAFeedback(
-                errors,
-                original,
-                (require('@/schemas/agent-output')).campaignBlueprintSchema,
-              ),
-              (output) => qaSentinel.validateCampaignBlueprint(output),
-            );
+              });
 
-            campaignBlueprint = output;
+              // Validate through QA
+              const qaResult = await qaSentinel.validateResearchOutput(researchResult);
+              if (!qaResult.passed) {
+                researchResult = await researchAgent.handleQAFeedback(
+                  qaResult.errors,
+                  researchResult,
+                  researchOutputSchema,
+                );
+              }
 
-            if (!qaResult.passed) {
-              statusMessages.push(`  Campaign built but has ${qaResult.errors.length} QA issues after ${retries} fix attempts. Sending for your review.`);
-            } else {
-              statusMessages.push(`  Built "${output.campaign.name}" with ${output.ad_groups.length} ad groups (QA passed${retries > 0 ? ` after ${retries} fixes` : ''})`);
-            }
-
-            // Create approval queue entry
-            const approval = await approvalEngine.enqueue({
-              action_type: 'create_campaign',
-              entity_type: 'campaign',
-              payload: output as unknown as Record<string, unknown>,
-              ai_reasoning: output.reasoning,
-              confidence_score: qaResult.passed ? 0.9 : 0.6,
-              priority: 'normal',
-              agent_name: 'CampaignBuilderAgent',
-            });
-            approvalIds.push(approval.id);
-
-            break;
-          }
-
-          case 'CopywriterAgent': {
-            if (!campaignBlueprint) {
-              statusMessages.push('  Skipped — no campaign to write copy for');
+              statusMessages.push(`  Found ${researchResult.keywords.length} keywords, analyzed ${researchResult.competitor_deep_analysis?.length || 0} competitors`);
               break;
             }
 
-            // Generate copy for each ad group
-            let totalVariants = 0;
-            for (const ag of campaignBlueprint.ad_groups) {
-              const { output: copyOutput, qaResult } = await qaSentinel.validateAndRetry(
-                () => copywriterAgent.generateCopy({
-                  campaign_name: campaignBlueprint!.campaign.name,
-                  ad_group_theme: ag.name,
+            case 'CampaignBuilderAgent': {
+              if (!researchResult) {
+                statusMessages.push('  Skipped — no research data available');
+                break;
+              }
+
+              const { output, qaResult, retries } = await qaSentinel.validateAndRetry(
+                () => campaignBuilderAgent.buildCampaign({
+                  research: researchResult!,
+                  instructions: intent.entities.business_description || '',
                   business_description: intent.entities.business_description || '',
                   target_audience: intent.entities.target_audience,
+                  budget_daily_dollars: intent.entities.budget,
                   landing_page_url: intent.entities.landing_page_url,
-                  keywords: ag.keywords.map((k) => k.text),
-                  campaign_type: campaignBlueprint!.campaign.campaign_type,
+                  geo_targets: intent.entities.geo_targets?.map((g) => ({ country: g })),
+                  language_targets: ['en'],
                 }),
-                (errors, original) => copywriterAgent.handleQAFeedback(
-                  errors,
-                  original,
-                  (require('@/schemas/agent-output')).adCopyVariantsSchema,
+                (errors, original) => campaignBuilderAgent.handleQAFeedback(
+                  errors, original, campaignBlueprintSchema,
                 ),
-                (output) => qaSentinel.validateAdCopyVariants(output),
+                (output) => qaSentinel.validateCampaignBlueprint(output),
               );
 
-              totalVariants += copyOutput.variants.length;
+              campaignBlueprint = output;
+
+              if (!qaResult.passed) {
+                statusMessages.push(`  Campaign built but has ${qaResult.errors.length} QA issues after ${retries} fix attempts. Sending for your review.`);
+              } else {
+                statusMessages.push(`  Built "${output.campaign.name}" with ${output.ad_groups.length} ad groups (QA passed${retries > 0 ? ` after ${retries} fixes` : ''})`);
+              }
+
+              const approval = await approvalEngine.enqueue({
+                action_type: 'create_campaign',
+                entity_type: 'campaign',
+                payload: output as unknown as Record<string, unknown>,
+                ai_reasoning: output.reasoning,
+                confidence_score: qaResult.passed ? 0.9 : 0.6,
+                priority: 'normal',
+                agent_name: 'CampaignBuilderAgent',
+              });
+              approvalIds.push(approval.id);
+              break;
             }
 
-            statusMessages.push(`  Generated ${totalVariants} ad copy variants across ${campaignBlueprint.ad_groups.length} ad groups`);
-            break;
-          }
+            case 'CopywriterAgent': {
+              if (!campaignBlueprint) {
+                statusMessages.push('  Skipped — no campaign to write copy for');
+                break;
+              }
 
-          default:
-            statusMessages.push(`  Agent "${step.agent}" not yet implemented`);
+              let totalVariants = 0;
+              for (const ag of campaignBlueprint.ad_groups) {
+                const { output: copyOutput } = await qaSentinel.validateAndRetry(
+                  () => copywriterAgent.generateCopy({
+                    campaign_name: campaignBlueprint!.campaign.name,
+                    ad_group_theme: ag.name,
+                    business_description: intent.entities.business_description || '',
+                    target_audience: intent.entities.target_audience,
+                    landing_page_url: intent.entities.landing_page_url,
+                    keywords: ag.keywords.map((k) => k.text),
+                    campaign_type: campaignBlueprint!.campaign.campaign_type,
+                  }),
+                  (errors, original) => copywriterAgent.handleQAFeedback(
+                    errors, original, adCopyVariantsSchema,
+                  ),
+                  (output) => qaSentinel.validateAdCopyVariants(output),
+                );
+
+                totalVariants += copyOutput.variants.length;
+              }
+
+              statusMessages.push(`  Generated ${totalVariants} ad copy variants across ${campaignBlueprint.ad_groups.length} ad groups`);
+              break;
+            }
+
+            default:
+              statusMessages.push(`  Agent "${step.agent}" — will be available in a future update`);
+          }
+        } catch (stepError) {
+          statusMessages.push(`  Error in ${step.agent}: ${stepError instanceof Error ? stepError.message : 'Unknown error'}. Continuing with next step.`);
+          this.logger.error(`Step failed: ${step.agent}`, { error: stepError instanceof Error ? stepError.message : String(stepError) });
         }
       }
 

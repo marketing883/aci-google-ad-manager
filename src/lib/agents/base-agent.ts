@@ -178,8 +178,9 @@ export abstract class BaseAdsAgent {
 
     const endTimer = this.logger.startTimer(`openai:${model}`);
 
-    // o3 and reasoning models don't support temperature or system messages the same way
-    const isReasoningModel = model.startsWith('o');
+    // OpenAI reasoning models (o1, o3, o4-mini, etc.) don't support temperature or system messages
+    const REASONING_MODELS = ['o1', 'o1-mini', 'o1-preview', 'o3', 'o3-mini', 'o4-mini'];
+    const isReasoningModel = REASONING_MODELS.some((rm) => model === rm || model.startsWith(`${rm}-`));
 
     const response = await withRetry(
       () =>

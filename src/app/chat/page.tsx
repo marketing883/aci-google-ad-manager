@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { MessageSquare, Send, Sparkles } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { MessageSquare, Send, Sparkles, Trash2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
   id: string;
@@ -17,13 +18,84 @@ const SUGGESTIONS = [
   'Generate new ad copy variations for my best performing ad group',
 ];
 
+// Session storage keys for state persistence
+const STATE_KEY = 'aci_chat_state';
+const PLAN_KEY = 'aci_chat_plan';
+const INTENT_KEY = 'aci_chat_intent';
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [chatState, setChatState] = useState<string>('idle');
-  const [currentPlan, setCurrentPlan] = useState<unknown>(null);
-  const [currentIntent, setCurrentIntent] = useState<unknown>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Persist orchestrator state across page navigations (not refreshes)
+  const [chatState, setChatState] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem(STATE_KEY) || 'idle';
+    }
+    return 'idle';
+  });
+  const [currentPlan, setCurrentPlan] = useState<unknown>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem(PLAN_KEY);
+      return stored ? JSON.parse(stored) : null;
+    }
+    return null;
+  });
+  const [currentIntent, setCurrentIntent] = useState<unknown>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem(INTENT_KEY);
+      return stored ? JSON.parse(stored) : null;
+    }
+    return null;
+  });
+
+  // Persist state changes to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem(STATE_KEY, chatState);
+  }, [chatState]);
+  useEffect(() => {
+    sessionStorage.setItem(PLAN_KEY, currentPlan ? JSON.stringify(currentPlan) : '');
+  }, [currentPlan]);
+  useEffect(() => {
+    sessionStorage.setItem(INTENT_KEY, currentIntent ? JSON.stringify(currentIntent) : '');
+  }, [currentIntent]);
+
+  // Load chat history on mount
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isLoading]);
+
+  async function loadHistory() {
+    try {
+      const res = await fetch('/api/chat/history?limit=50');
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setMessages(data.map((m: { id: string; role: string; content: string; created_at: string }) => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: new Date(m.created_at),
+        })));
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function clearHistory() {
+    try {
+      await fetch('/api/chat/history', { method: 'DELETE' });
+      setMessages([]);
+      setChatState('idle');
+      setCurrentPlan(null);
+      setCurrentIntent(null);
+    } catch { /* ignore */ }
+  }
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -77,6 +149,10 @@ export default function ChatPage() {
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
+      // Reset state on error to prevent getting stuck
+      setChatState('idle');
+      setCurrentPlan(null);
+      setCurrentIntent(null);
     }
 
     setIsLoading(false);
@@ -84,9 +160,22 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-7rem)]">
-      <div className="flex items-center gap-3 mb-4">
-        <MessageSquare className="w-7 h-7 text-blue-400" />
-        <h1 className="text-2xl font-bold">AI Campaign Assistant</h1>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <MessageSquare className="w-7 h-7 text-blue-400" />
+          <h1 className="text-2xl font-bold">AI Campaign Assistant</h1>
+          {chatState !== 'idle' && (
+            <span className="text-xs px-2 py-0.5 bg-purple-600/20 text-purple-400 rounded">
+              {chatState.replace(/_/g, ' ')}
+            </span>
+          )}
+        </div>
+        {messages.length > 0 && (
+          <button onClick={clearHistory} className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+            <Trash2 className="w-3 h-3" />
+            Clear
+          </button>
+        )}
       </div>
 
       {/* Messages */}
@@ -124,7 +213,13 @@ export default function ChatPage() {
                     : 'bg-gray-900 border border-gray-800 text-gray-200'
                 }`}
               >
-                {msg.content}
+                {msg.role === 'assistant' ? (
+                  <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-2 [&>ul]:mb-2 [&>ol]:mb-2 [&>h2]:text-base [&>h3]:text-sm">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  msg.content
+                )}
               </div>
             </div>
           ))
@@ -141,6 +236,8 @@ export default function ChatPage() {
             </div>
           </div>
         )}
+
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}

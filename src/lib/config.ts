@@ -56,7 +56,7 @@ export const CONFIG = {
   agents: {
     maxQARetries: 2,
     // Regex patterns that mean "yes, execute"
-    confirmationPattern: /^(go|proceed|yes|do it|continue|approved|execute|run it|let'?s go|ok|okay|sure|confirm|yep|yup|affirmative|start|begin|launch)/i,
+    confirmationPattern: /^(go|proceed|yes|do it|continue|approved|execute|run it|let'?s go|ok|okay|sure|confirm|yep|yup|affirmative|start|begin|launch)[\s!.]*$/i,
   },
 
   // Google Ads

@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('campaigns')
       .select('*, ad_groups(count)')
+      .neq('status', 'removed')
       .order('created_at', { ascending: false });
 
     if (status && status !== 'all') {

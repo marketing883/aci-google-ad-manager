@@ -14,6 +14,7 @@ interface CampaignDetail {
   name: string;
   campaign_type: string;
   status: string;
+  google_campaign_id: string | null;
   budget_amount_micros: number;
   budget_type: string;
   bidding_strategy: string;
@@ -298,7 +299,7 @@ export default function CampaignDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={toggleStatus} disabled={actionLoading} className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-sm rounded-lg">
+          <button onClick={toggleStatus} disabled={actionLoading} title={campaign.google_campaign_id ? 'Toggle on Google Ads' : 'Local status only — submit for approval to push to Google Ads'} className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-sm rounded-lg">
             {campaign.status === 'active' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             {campaign.status === 'active' ? 'Pause' : 'Activate'}
           </button>

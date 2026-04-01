@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
 // Server-side Supabase client (for use in API routes and server components)
@@ -29,7 +30,6 @@ export async function createServerSupabaseClient() {
 
 // Admin client with service role key (bypasses RLS)
 export function createAdminClient() {
-  const { createClient } = require('@supabase/supabase-js');
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,

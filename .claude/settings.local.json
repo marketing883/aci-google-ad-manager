@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --yes)",
+      "Bash(cp -r \"C:\\\\Users\\\\Habib\\\\Documents\\\\ACI-New\\\\temp-ads-init/\"* \"C:\\\\Users\\\\Habib\\\\Documents\\\\ACI-New\\\\ACI-Ads-Manager/\")",
+      "Bash(cp -r \"C:\\\\Users\\\\Habib\\\\Documents\\\\ACI-New\\\\temp-ads-init/\".* \"C:\\\\Users\\\\Habib\\\\Documents\\\\ACI-New\\\\ACI-Ads-Manager/\")",
+      "Bash(rm -rf \"C:\\\\Users\\\\Habib\\\\Documents\\\\ACI-New\\\\temp-ads-init\")",
+      "Bash(npm install:*)",
+      "Bash(rm -rf \"C:/Users/Habib/Documents/ACI-New/temp-ads-init\")",
+      "Bash(powershell -Command \"Get-PSDrive C | Select-Object Used,Free | Format-Table\")",
+      "Bash(gh auth:*)",
+      "Bash(git --version)",
+      "Bash(git config:*)",
+      "Bash(git credential-manager:*)",
+      "Bash(1:*)"
+    ]
+  }
+}

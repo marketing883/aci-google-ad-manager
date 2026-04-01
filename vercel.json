@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/sync-performance",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/run-optimizer",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/expire-approvals",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}

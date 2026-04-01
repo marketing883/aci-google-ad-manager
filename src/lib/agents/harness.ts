@@ -233,7 +233,8 @@ export class CampaignHarness {
       // Rate limit
       await waitForCapacity('anthropic', 5000);
 
-      const response = await this.anthropic.messages.create({
+      // Use streaming to avoid timeout on long Opus calls
+      const stream = this.anthropic.messages.stream({
         model: this.model,
         max_tokens: CONFIG.models.orchestrator.maxTokens,
         temperature: CONFIG.models.orchestrator.temperature,
@@ -241,6 +242,8 @@ export class CampaignHarness {
         messages,
         ...(tools.length > 0 ? { tools, tool_choice: { type: 'auto' as const } } : {}),
       });
+
+      const response = await stream.finalMessage();
 
       recordRequest('anthropic', response.usage.input_tokens);
 

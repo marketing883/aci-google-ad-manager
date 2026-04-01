@@ -21,6 +21,9 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [chatState, setChatState] = useState<string>('idle');
+  const [currentPlan, setCurrentPlan] = useState<unknown>(null);
+  const [currentIntent, setCurrentIntent] = useState<unknown>(null);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -33,20 +36,50 @@ export default function ChatPage() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    const messageText = input.trim();
     setInput('');
     setIsLoading(true);
 
-    // TODO: Call /api/chat endpoint
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: messageText,
+          state: chatState,
+          plan: currentPlan,
+          intent: currentIntent,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: 'Chat API not connected yet. Connect your Google Ads account and AI keys in Settings to get started.',
+        content: data.response,
         timestamp: new Date(),
       };
+
       setMessages((prev) => [...prev, assistantMessage]);
-      setIsLoading(false);
-    }, 1000);
+      setChatState(data.state || 'idle');
+      setCurrentPlan(data.plan || null);
+      setCurrentIntent(data.intent || null);
+    } catch (error) {
+      const errorMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `Error: ${error instanceof Error ? error.message : 'Something went wrong. Check that your AI keys are configured in .env.local'}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    }
+
+    setIsLoading(false);
   };
 
   return (

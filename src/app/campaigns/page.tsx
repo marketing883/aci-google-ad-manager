@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Megaphone, Plus } from 'lucide-react';
+import { Megaphone, Plus, Trash2 } from 'lucide-react';
 
 interface CampaignRow {
   id: string;
@@ -86,12 +86,14 @@ export default function CampaignsPage() {
             <thead>
               <tr className="border-b border-gray-800">
                 <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Campaign</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Type</th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Status</th>
                 <th className="text-right px-4 py-3 text-sm font-medium text-gray-400">Budget</th>
+                <th className="text-right px-4 py-3 text-sm font-medium text-gray-400">Impr.</th>
                 <th className="text-right px-4 py-3 text-sm font-medium text-gray-400">Clicks</th>
+                <th className="text-right px-4 py-3 text-sm font-medium text-gray-400">CTR</th>
                 <th className="text-right px-4 py-3 text-sm font-medium text-gray-400">Spend</th>
-                <th className="text-right px-4 py-3 text-sm font-medium text-gray-400">Ad Groups</th>
+                <th className="text-right px-4 py-3 text-sm font-medium text-gray-400">Conv.</th>
+                <th className="w-10"></th>
               </tr>
             </thead>
             <tbody>
@@ -99,17 +101,24 @@ export default function CampaignsPage() {
                 <tr key={c.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
                   <td className="px-4 py-3">
                     <Link href={`/campaigns/${c.id}`} className="text-blue-400 hover:text-blue-300 font-medium">{c.name}</Link>
+                    <p className="text-xs text-gray-500">{c.campaign_type} &middot; {c.ad_groups_count || 0} ad groups</p>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-400">{c.campaign_type}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[c.status] || 'bg-gray-600'} text-white`}>
                       {c.status.replace(/_/g, ' ')}
                     </span>
                   </td>
                   <td className="text-right px-4 py-3 text-sm">{formatMicros(c.budget_amount_micros)}/day</td>
+                  <td className="text-right px-4 py-3 text-sm">{c.stats?.impressions?.toLocaleString() || '—'}</td>
                   <td className="text-right px-4 py-3 text-sm">{c.stats?.clicks?.toLocaleString() || '—'}</td>
+                  <td className="text-right px-4 py-3 text-sm">{c.stats?.ctr ? `${(c.stats.ctr * 100).toFixed(1)}%` : '—'}</td>
                   <td className="text-right px-4 py-3 text-sm">{c.stats?.cost_micros ? formatMicros(c.stats.cost_micros) : '—'}</td>
-                  <td className="text-right px-4 py-3 text-sm">{c.ad_groups_count || 0}</td>
+                  <td className="text-right px-4 py-3 text-sm">{c.stats?.conversions || '—'}</td>
+                  <td className="px-2 py-3">
+                    <button onClick={async (e) => { e.preventDefault(); if (confirm(`Delete "${c.name}"?`)) { await fetch(`/api/campaigns/${c.id}`, { method: 'DELETE' }); fetchCampaigns(); } }} className="p-1.5 hover:bg-red-600/20 rounded text-gray-600 hover:text-red-400">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

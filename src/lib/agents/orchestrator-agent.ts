@@ -222,7 +222,8 @@ Respond with ONLY the JSON object. No other text.`;
    */
   private askQuestions(intent: UserIntent): OrchestratorResponse {
     const questions = intent.follow_up_questions || [];
-    const questionList = questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
+    // Use double newlines for markdown paragraph breaks
+    const questionList = questions.map((q, i) => `**${i + 1}.** ${q}`).join('\n\n');
 
     return {
       message: `Before I proceed, I need a few details:\n\n${questionList}\n\nPlease answer these so I can build the best plan for you.`,

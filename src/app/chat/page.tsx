@@ -214,8 +214,15 @@ export default function ChatPage() {
                 }`}
               >
                 {msg.role === 'assistant' ? (
-                  <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-2 [&>ul]:mb-2 [&>ol]:mb-2 [&>h2]:text-base [&>h3]:text-sm">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-2 [&>ul]:mb-2 [&>ol]:mb-2 [&>h2]:text-base [&>h3]:text-sm [&>ol>li]:mb-1">
+                    <ReactMarkdown
+                      components={{
+                        // Ensure line breaks render properly
+                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
                   </div>
                 ) : (
                   msg.content

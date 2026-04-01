@@ -102,10 +102,10 @@ export class OrchestratorAgent extends BaseAdsAgent {
         return this.refinePlan(message, currentPlan, currentIntent!, chatHistory);
       }
 
-      // If we're in asking_questions state, user is answering — merge answers and generate plan
+      // If we're in asking_questions state, user is answering — extract answers and generate plan
       if (currentState === 'asking_questions' && currentIntent) {
-        const answersIntent = await this.parseIntent(message, chatHistory);
-        const mergedIntent = this.mergeIntentWithAnswers(currentIntent, answersIntent, message);
+        // Use a dedicated answer-extraction prompt instead of re-parsing as new intent
+        const mergedIntent = await this.extractAnswersIntoIntent(currentIntent, message);
         return this.generatePlan(mergedIntent, chatHistory);
       }
 
@@ -459,26 +459,82 @@ Refine the execution plan based on the user's feedback. Keep what works, change 
 
   // ---- Helpers ----
 
-  private isConfirmation(message: string): boolean {
-    return CONFIG.agents.confirmationPattern.test(message.trim());
-  }
+  /**
+   * Extract answers from user message and merge into existing intent.
+   * Uses a dedicated prompt that focuses on extracting entity values,
+   * not re-classifying intent.
+   */
+  private async extractAnswersIntoIntent(
+    originalIntent: UserIntent,
+    answersMessage: string,
+  ): Promise<UserIntent> {
+    const extractionPrompt = `You are extracting structured data from a user's answers. You MUST respond with ONLY a valid JSON object — no other text.
 
-  private mergeIntentWithAnswers(
-    original: UserIntent,
-    newParse: UserIntent,
-    rawMessage: string,
-  ): UserIntent {
+The user was previously asked questions about their Google Ads campaign. Here is what we already know:
+${JSON.stringify(originalIntent.entities, null, 2)}
+
+The user's answers:
+${answersMessage}
+
+Extract any new information from the answers and return a JSON object with ONLY the fields that have values. Valid fields:
+- "business_description": string
+- "target_audience": string
+- "budget": number (daily budget in dollars, just the number)
+- "geo_targets": ["location1", "location2"]
+- "landing_page_url": string (primary URL)
+- "competitor_domains": ["domain1.com"]
+- "keywords": ["keyword1", "keyword2"]
+- "campaign_name": string
+
+Return ONLY the JSON with fields that have values. Example: {"budget": 50, "target_audience": "CTOs in Fortune 1000", "geo_targets": ["USA"], "landing_page_url": "https://example.com/page"}`;
+
+    try {
+      const response = await this.callRaw({
+        system: 'You are a JSON data extractor. Respond with ONLY valid JSON. No explanations.',
+        prompt: extractionPrompt,
+      });
+
+      const { extractJSON } = await import('../utils/json-parser');
+      const extracted = extractJSON<Record<string, unknown>>(response);
+
+      if (extracted) {
+        return {
+          ...originalIntent,
+          entities: {
+            ...originalIntent.entities,
+            ...(extracted.business_description && { business_description: String(extracted.business_description) }),
+            ...(extracted.target_audience && { target_audience: String(extracted.target_audience) }),
+            ...(extracted.budget && { budget: Number(extracted.budget) }),
+            ...(extracted.geo_targets && { geo_targets: extracted.geo_targets as string[] }),
+            ...(extracted.landing_page_url && { landing_page_url: String(extracted.landing_page_url) }),
+            ...(extracted.competitor_domains && { competitor_domains: extracted.competitor_domains as string[] }),
+            ...(extracted.keywords && { keywords: extracted.keywords as string[] }),
+            ...(extracted.campaign_name && { campaign_name: String(extracted.campaign_name) }),
+          },
+          follow_up_questions: [],
+          confidence: 0.9,
+        };
+      }
+    } catch (error) {
+      this.logger.warn('Answer extraction failed, using raw merge', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    // Fallback: just append the raw message to business_description
     return {
-      ...original,
+      ...originalIntent,
       entities: {
-        ...original.entities,
-        ...Object.fromEntries(
-          Object.entries(newParse.entities).filter(([, v]) => v !== undefined),
-        ),
+        ...originalIntent.entities,
+        business_description: `${originalIntent.entities.business_description || ''}\n\nAdditional details: ${answersMessage}`,
       },
       follow_up_questions: [],
-      confidence: Math.max(original.confidence, newParse.confidence),
+      confidence: 0.7,
     };
+  }
+
+  private isConfirmation(message: string): boolean {
+    return CONFIG.agents.confirmationPattern.test(message.trim());
   }
 
   private formatPlanMessage(plan: ExecutionPlan): string {

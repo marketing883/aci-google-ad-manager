@@ -217,7 +217,6 @@ export default function ChatPage() {
                   <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-2 [&>ul]:mb-2 [&>ol]:mb-2 [&>h2]:text-base [&>h3]:text-sm [&>ol>li]:mb-1">
                     <ReactMarkdown
                       components={{
-                        // Ensure line breaks render properly
                         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                       }}
                     >
@@ -225,7 +224,7 @@ export default function ChatPage() {
                     </ReactMarkdown>
                   </div>
                 ) : (
-                  msg.content
+                  <span className="whitespace-pre-wrap">{msg.content}</span>
                 )}
               </div>
             </div>

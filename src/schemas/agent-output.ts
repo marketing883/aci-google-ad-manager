@@ -270,22 +270,27 @@ export type UserIntent = z.infer<typeof userIntentSchema>;
 // ---- Orchestrator Execution Plan ----
 
 export const executionPlanSchema = z.object({
-  summary: z.string(), // "I'll research keywords for cloud consulting, analyze 3 competitors, then build a Search campaign"
+  summary: z.string(),
   steps: z.array(z.object({
-    agent: z.string(), // ResearchAgent, CampaignBuilderAgent, etc.
-    action: z.string(), // what this step will do
-    depends_on: z.array(z.number()).optional(), // step indices this depends on
-  })),
+    agent: z.string(),
+    action: z.string().optional().default('execute'), // what this step will do
+    description: z.string().optional(), // AI sometimes uses this instead of action
+    depends_on: z.array(z.number()).optional(),
+  }).transform((step) => ({
+    ...step,
+    // Normalize: use description as action if action is missing
+    action: step.action || step.description || 'execute',
+  }))),
   suggested_competitors: z.array(z.object({
     domain: z.string(),
-    reason: z.string(),
+    reason: z.string().optional().default(''),
   })).optional(),
   estimated_budget_range: z.object({
     min_daily_micros: z.number(),
     max_daily_micros: z.number(),
-    reasoning: z.string(),
+    reasoning: z.string().optional().default(''),
   }).optional(),
-  needs_user_input: z.array(z.string()).optional(), // things still needed from user
+  needs_user_input: z.array(z.string()).optional(),
 });
 
 export type ExecutionPlan = z.infer<typeof executionPlanSchema>;

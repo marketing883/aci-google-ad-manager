@@ -110,6 +110,9 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMessage]);
     const messageText = input.trim();
     setInput('');
+    // Reset textarea height
+    const textarea = document.querySelector('textarea');
+    if (textarea) textarea.style.height = '48px';
     setIsLoading(true);
 
     try {
@@ -253,8 +256,8 @@ export default function ChatPage() {
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
-              // Auto-resize
-              e.target.style.height = 'auto';
+              // Auto-resize: shrink to fit, grow up to max
+              e.target.style.height = '48px';
               e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
             }}
             onKeyDown={(e) => {

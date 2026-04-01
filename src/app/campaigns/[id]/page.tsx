@@ -167,37 +167,20 @@ export default function CampaignDetailPage() {
     setActionLoading(false);
   }
 
-  async function handleDelete(type: string, entityId: string) {
-    if (type === 'campaign') {
-      await fetch(`/api/campaigns/${entityId}`, { method: 'DELETE' });
-      router.push('/campaigns');
-    } else if (type === 'ad_group') {
-      await fetch(`/api/campaigns/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }); // trigger refresh
-      // Soft delete via tool handler
-      const res = await fetch('/api/agents/build-campaign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '__delete_ad_group', campaign_type: 'SEARCH', daily_budget_dollars: 0, bidding_strategy: 'MAXIMIZE_CLICKS' }) });
-      // Actually just use supabase directly via a simple endpoint
-      await fetch(`/api/campaigns/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-    }
-    setConfirmDelete(null);
-    fetchCampaign();
-  }
-
   async function deleteEntity(type: string, entityId: string) {
-    // Use the existing API - soft delete by setting status to removed
-    if (type === 'ad_group') {
-      // Delete ad group + its ads + keywords
-      await fetch(`/api/campaigns/${id}/ad-groups`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ __delete: entityId }) });
-    }
-    // For now, use a direct approach
-    const endpoint = type === 'campaign' ? `/api/campaigns/${entityId}` : `/api/campaigns/${id}`;
-    if (type === 'campaign') {
-      await fetch(endpoint, { method: 'DELETE' });
-      router.push('/campaigns');
-      return;
-    }
-    // Refresh to pick up changes
+    await fetch('/api/entities/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entity_type: type, entity_id: entityId }),
+    });
+
     setConfirmDelete(null);
-    fetchCampaign();
+
+    if (type === 'campaign') {
+      router.push('/campaigns');
+    } else {
+      fetchCampaign();
+    }
   }
 
   async function saveSettings(e: React.FormEvent) {

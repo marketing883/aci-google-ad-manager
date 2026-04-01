@@ -115,7 +115,7 @@ export default function CampaignsPage() {
                   <td className="text-right px-4 py-3 text-sm">{c.stats?.cost_micros ? formatMicros(c.stats.cost_micros) : '—'}</td>
                   <td className="text-right px-4 py-3 text-sm">{c.stats?.conversions || '—'}</td>
                   <td className="px-2 py-3">
-                    <button onClick={async (e) => { e.preventDefault(); if (confirm(`Delete "${c.name}"?`)) { await fetch(`/api/campaigns/${c.id}`, { method: 'DELETE' }); fetchCampaigns(); } }} className="p-1.5 hover:bg-red-600/20 rounded text-gray-600 hover:text-red-400">
+                    <button onClick={async (e) => { e.preventDefault(); if (confirm(`Delete "${c.name}"?`)) { await fetch('/api/entities/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity_type: 'campaign', entity_id: c.id }) }); fetchCampaigns(); } }} className="p-1.5 hover:bg-red-600/20 rounded text-gray-600 hover:text-red-400">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </td>

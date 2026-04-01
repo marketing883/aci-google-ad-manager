@@ -210,18 +210,46 @@ export type OptimizerOutput = z.infer<typeof optimizerOutputSchema>;
 
 // ---- OrchestratorAgent — Intent Parsing ----
 
+const VALID_INTENTS = [
+  'research_keywords', 'build_campaign', 'optimize_campaigns', 'generate_ad_copy',
+  'check_performance', 'modify_campaign', 'pause_resume', 'general_question', 'unknown',
+] as const;
+
+// Map common AI variations to valid intents
+const INTENT_ALIASES: Record<string, typeof VALID_INTENTS[number]> = {
+  'create_campaign': 'build_campaign',
+  'new_campaign': 'build_campaign',
+  'setup_campaign': 'build_campaign',
+  'launch_campaign': 'build_campaign',
+  'keyword_research': 'research_keywords',
+  'find_keywords': 'research_keywords',
+  'research': 'research_keywords',
+  'write_copy': 'generate_ad_copy',
+  'write_ads': 'generate_ad_copy',
+  'ad_copy': 'generate_ad_copy',
+  'create_ads': 'generate_ad_copy',
+  'optimize': 'optimize_campaigns',
+  'performance': 'check_performance',
+  'view_performance': 'check_performance',
+  'pause': 'pause_resume',
+  'resume': 'pause_resume',
+  'edit_campaign': 'modify_campaign',
+  'update_campaign': 'modify_campaign',
+  'question': 'general_question',
+  'help': 'general_question',
+};
+
 export const userIntentSchema = z.object({
-  intent: z.enum([
-    'research_keywords',
-    'build_campaign',
-    'optimize_campaigns',
-    'generate_ad_copy',
-    'check_performance',
-    'modify_campaign',
-    'pause_resume',
-    'general_question',
-    'unknown',
-  ]),
+  intent: z.string().transform((val) => {
+    const lower = val.toLowerCase().trim();
+    if ((VALID_INTENTS as readonly string[]).includes(lower)) return lower as typeof VALID_INTENTS[number];
+    if (INTENT_ALIASES[lower]) return INTENT_ALIASES[lower];
+    // Fuzzy match: if it contains a known intent keyword, use it
+    for (const intent of VALID_INTENTS) {
+      if (lower.includes(intent) || intent.includes(lower)) return intent;
+    }
+    return 'unknown' as const;
+  }),
   entities: z.object({
     business_description: z.string().optional(),
     target_audience: z.string().optional(),
@@ -234,7 +262,7 @@ export const userIntentSchema = z.object({
     landing_page_url: z.string().optional(),
   }),
   follow_up_questions: z.array(z.string()).optional(),
-  confidence: z.number().min(0).max(1),
+  confidence: z.number().min(0).max(1).default(0.5),
 });
 
 export type UserIntent = z.infer<typeof userIntentSchema>;

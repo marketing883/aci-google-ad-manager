@@ -96,9 +96,15 @@ export default function ApprovalDetailPage() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-gray-400">Name:</span> <span className="text-white font-medium">{item.payload.campaign_name as string}</span></div>
                   <div><span className="text-gray-400">Type:</span> <span className="text-white">{item.payload.campaign_type as string}</span></div>
-                  <div><span className="text-gray-400">Budget:</span> <span className="text-white">${((item.payload.budget_micros as number || item.payload.budget as number || 0) / 1_000_000).toFixed(2)}/day</span></div>
+                  <div><span className="text-gray-400">Budget:</span> <span className="text-white">${((item.payload.budget_micros as number || item.payload.budget as number || 0) / 1_000_000).toFixed(2)}/{item.payload.budget_type as string || 'day'}</span></div>
                   <div><span className="text-gray-400">Bidding:</span> <span className="text-white">{(item.payload.bidding_strategy as string || '—').replace(/_/g, ' ')}</span></div>
+                  {item.payload.target_cpa_micros && <div><span className="text-gray-400">Target CPA:</span> <span className="text-white">${((item.payload.target_cpa_micros as number) / 1_000_000).toFixed(2)}</span></div>}
+                  {item.payload.target_roas && <div><span className="text-gray-400">Target ROAS:</span> <span className="text-white">{item.payload.target_roas as number}x</span></div>}
+                  <div><span className="text-gray-400">Start Date:</span> <span className="text-white">{(item.payload.start_date as string) || 'Immediately'}</span></div>
+                  <div><span className="text-gray-400">End Date:</span> <span className="text-white">{(item.payload.end_date as string) || 'No end date'}</span></div>
                   <div><span className="text-gray-400">Locations:</span> <span className="text-white">{Array.isArray(item.payload.geo_targets) ? (item.payload.geo_targets as Array<{country?: string}>).map((g) => g.country || JSON.stringify(g)).join(', ') : '—'}</span></div>
+                  <div><span className="text-gray-400">Languages:</span> <span className="text-white">{Array.isArray(item.payload.language_targets) ? (item.payload.language_targets as string[]).join(', ') : '—'}</span></div>
+                  {item.payload.network_settings && <div><span className="text-gray-400">Networks:</span> <span className="text-white">{[(item.payload.network_settings as {search?: boolean}).search && 'Search', (item.payload.network_settings as {display?: boolean}).display && 'Display', (item.payload.network_settings as {partners?: boolean}).partners && 'Partners'].filter(Boolean).join(', ') || '—'}</span></div>}
                   <div><span className="text-gray-400">Totals:</span> <span className="text-white">{item.payload.ad_groups_count as number} ad groups, {item.payload.ads_count as number} ads, {item.payload.keywords_count as number} keywords</span></div>
                 </div>
               </div>

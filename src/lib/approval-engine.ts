@@ -77,17 +77,9 @@ export class ApprovalEngine {
 
     logger.info(`Approved: ${id}`);
 
-    // Try to auto-apply (push to Google Ads), but don't fail the approval if apply fails
+    // Auto-apply: try to push to Google Ads
     if (autoApply) {
-      try {
-        return await this.apply(id);
-      } catch (applyError) {
-        logger.warn(`Auto-apply failed for ${id}, keeping as approved`, {
-          error: applyError instanceof Error ? applyError.message : String(applyError),
-        });
-        // Return the approved item — don't change status to failed
-        return data;
-      }
+      return this.apply(id);
     }
 
     return data;
@@ -198,6 +190,26 @@ export class ApprovalEngine {
       logger.error(`Failed to apply: ${id}`, { error: errMsg });
       throw new Error(`Apply failed: ${errMsg}`);
     }
+  }
+
+  /**
+   * Retry a failed item — sets back to approved and tries apply again
+   */
+  async retry(id: string): Promise<ApprovalQueueItem> {
+    const item = await this.getItem(id);
+
+    if (item.status !== 'failed') {
+      throw new Error(`Can only retry failed items, current status: ${item.status}`);
+    }
+
+    // Set back to approved
+    await this.supabase
+      .from('approval_queue')
+      .update({ status: 'approved', error_message: null })
+      .eq('id', id);
+
+    // Try apply again
+    return this.apply(id);
   }
 
   /**

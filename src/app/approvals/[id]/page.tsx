@@ -140,10 +140,58 @@ export default function ApprovalDetailPage() {
             </div>
           )}
 
-          {item.status !== 'pending' && (
+          {item.status === 'failed' && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-red-500 rounded-full" />
+                <p className="text-sm font-medium text-red-400">Push to Google Ads Failed</p>
+              </div>
+              {item.error_message && (
+                <p className="text-xs text-gray-400 bg-gray-800 p-2 rounded">{item.error_message}</p>
+              )}
+              <button onClick={async () => {
+                setActionLoading('retry');
+                try {
+                  await fetch(`/api/approvals/${id}/retry`, { method: 'POST' });
+                  fetchDetail();
+                } catch { /* ignore */ }
+                setActionLoading(null);
+              }} disabled={!!actionLoading} className="w-full py-2.5 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
+                {actionLoading === 'retry' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Retry Push to Google Ads'}
+              </button>
+            </div>
+          )}
+
+          {item.status === 'applied' && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <p className="text-sm text-gray-400">Status: <span className="font-medium text-white capitalize">{item.status}</span></p>
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-green-400" />
+                <p className="text-sm font-medium text-green-400">Successfully pushed to Google Ads</p>
+              </div>
               {item.reviewer_notes && <p className="text-sm text-gray-500 mt-2">Notes: {item.reviewer_notes}</p>}
+            </div>
+          )}
+
+          {item.status === 'approved' && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-blue-400" />
+                <p className="text-sm font-medium text-blue-400">Approved — awaiting push to Google Ads</p>
+              </div>
+              {item.reviewer_notes && <p className="text-sm text-gray-500 mt-2">Notes: {item.reviewer_notes}</p>}
+            </div>
+          )}
+
+          {item.status === 'rejected' && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <p className="text-sm text-gray-400">Status: <span className="font-medium text-red-400">Rejected</span></p>
+              {item.reviewer_notes && <p className="text-sm text-gray-500 mt-2">Reason: {item.reviewer_notes}</p>}
+            </div>
+          )}
+
+          {item.status === 'expired' && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <p className="text-sm text-gray-400">Status: <span className="font-medium text-gray-500">Expired</span></p>
             </div>
           )}
         </div>

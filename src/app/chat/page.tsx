@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MessageSquare, Send, Sparkles, Trash2, CheckCircle, AlertCircle, Search, Wrench, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import Link from 'next/link';
 
 // ============================================================
@@ -393,6 +394,7 @@ export default function ChatPage() {
                       {msg.content && (
                         <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-2 [&>ul]:mb-2 [&>ol]:mb-2 [&>table]:mb-3 [&>table]:w-full [&>table]:text-xs">
                           <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
                             components={{
                               table: ({ children }) => (
                                 <div className="overflow-x-auto rounded-lg border border-gray-700 my-3">

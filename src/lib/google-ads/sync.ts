@@ -214,6 +214,8 @@ export async function pushChangeToGoogle(
       return handleCreateAd(client, payload);
     case 'add_keywords':
       return handleAddKeywords(client, payload);
+    case 'push_to_google_ads':
+      return handlePushFullCampaign(client, payload);
     default:
       throw new Error(`Unknown action type: ${actionType}`);
   }
@@ -330,6 +332,110 @@ async function handleAddKeywords(
       success: results.every((r) => r.success),
       google_resource_name: results[0]?.resource_name,
     };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Push a full campaign (with all ad groups, ads, keywords) to Google Ads
+ */
+async function handlePushFullCampaign(
+  client: GoogleAdsClient,
+  payload: Record<string, unknown>,
+): Promise<MutateResultSummary> {
+  const supabase = createAdminClient();
+  const campaignId = payload.campaign_id as string;
+
+  try {
+    const { data: campaign } = await supabase
+      .from('campaigns').select('*').eq('id', campaignId).single();
+
+    if (!campaign) return { success: false, error: 'Campaign not found in database' };
+
+    // Step 1: Create campaign on Google Ads
+    const campaignResults = await client.createCampaign({
+      name: campaign.name,
+      budget_micros: campaign.budget_amount_micros,
+      channel_type: campaign.campaign_type,
+      bidding_strategy: campaign.bidding_strategy,
+      target_cpa_micros: campaign.target_cpa_micros,
+      target_roas: campaign.target_roas,
+      network_settings: campaign.network_settings,
+    });
+
+    if (!campaignResults[0]?.resource_name) {
+      return { success: false, error: 'Failed to create campaign on Google Ads' };
+    }
+
+    const campaignResourceName = campaignResults[0].resource_name;
+    const googleCampaignId = campaignResourceName.split('/').pop();
+
+    // Update local campaign with Google ID
+    await supabase.from('campaigns').update({
+      google_campaign_id: googleCampaignId,
+      status: 'active',
+      last_synced_at: new Date().toISOString(),
+    }).eq('id', campaignId);
+
+    // Step 2: Create ad groups + keywords + ads
+    const { data: adGroups } = await supabase
+      .from('ad_groups').select('*').eq('campaign_id', campaignId).neq('status', 'removed');
+
+    for (const ag of adGroups || []) {
+      try {
+        const agResults = await client.createAdGroup({
+          campaign_resource_name: campaignResourceName,
+          name: ag.name,
+          cpc_bid_micros: ag.cpc_bid_micros,
+        });
+
+        const agResourceName = agResults[0]?.resource_name;
+        if (!agResourceName) continue;
+
+        await supabase.from('ad_groups').update({
+          google_ad_group_id: agResourceName.split('/').pop(),
+          status: 'active',
+          last_synced_at: new Date().toISOString(),
+        }).eq('id', ag.id);
+
+        // Add keywords
+        const { data: keywords } = await supabase
+          .from('keywords').select('*').eq('ad_group_id', ag.id).neq('status', 'removed');
+
+        if (keywords && keywords.length > 0) {
+          await client.addKeywords(agResourceName,
+            keywords.map((kw: { text: string; match_type: string; cpc_bid_micros?: number }) => ({
+              text: kw.text, match_type: kw.match_type, cpc_bid_micros: kw.cpc_bid_micros,
+            })),
+          );
+        }
+
+        // Create ads
+        const { data: ads } = await supabase
+          .from('ads').select('*').eq('ad_group_id', ag.id).neq('status', 'removed');
+
+        for (const ad of ads || []) {
+          try {
+            await client.createResponsiveSearchAd({
+              ad_group_resource_name: agResourceName,
+              headlines: ad.headlines,
+              descriptions: ad.descriptions,
+              final_urls: ad.final_urls,
+              path1: ad.path1,
+              path2: ad.path2,
+            });
+            await supabase.from('ads').update({ status: 'active', last_synced_at: new Date().toISOString() }).eq('id', ad.id);
+          } catch (adErr) {
+            logger.warn(`Failed to push ad ${ad.id}`, { error: (adErr as Error).message });
+          }
+        }
+      } catch (agErr) {
+        logger.warn(`Failed to push ad group ${ag.id}`, { error: (agErr as Error).message });
+      }
+    }
+
+    return { success: true, google_resource_name: campaignResourceName };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }

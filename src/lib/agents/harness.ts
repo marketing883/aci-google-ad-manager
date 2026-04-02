@@ -4,7 +4,7 @@ import { createAdminClient } from '../supabase-server';
 import { createLogger } from '../utils/logger';
 import { CONFIG } from '../config';
 import { waitForCapacity, recordRequest } from '../rate-limit';
-import { executeTool, getToolsForStage, type PipelineStage } from './tools';
+import { executeTool, getToolsForStage, getToolsByGroups, TOOL_DEFINITIONS, type PipelineStage } from './tools';
 import type { ChatMessage } from '@/types';
 
 const logger = createLogger('Harness');
@@ -164,10 +164,55 @@ export class CampaignHarness {
   private anthropic: Anthropic;
   private openai: OpenAI;
   private supabase = createAdminClient();
+  private standaloneTools: Anthropic.Tool[] = [];
 
   constructor() {
     this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+
+  /** Layer 1: Haiku classifier — pick relevant tool groups (~$0.0001 per call) */
+  private async classifyIntent(message: string): Promise<string[]> {
+    try {
+      const response = await this.anthropic.messages.create({
+        model: 'claude-3-5-haiku-20241022',
+        max_tokens: 200,
+        temperature: 0,
+        system: `Classify this message into tool groups. Return ONLY a JSON array.
+Groups: campaign_create, campaign_read, campaign_edit, research, analytics, reports, interaction
+Always include "interaction". If unclear, include multiple groups.
+"create campaign" → ["campaign_create","research","interaction"]
+"how are campaigns doing" → ["analytics","campaign_read","interaction"]
+"delete ad group" → ["campaign_edit","interaction"]
+"research keywords" → ["research","interaction"]
+"send report" → ["reports","interaction"]
+"optimize" → ["analytics","campaign_edit","interaction"]
+unclear → ["analytics","campaign_read","interaction"]`,
+        messages: [{ role: 'user', content: message }],
+      });
+      const text = response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('');
+      const match = text.match(/\[[\s\S]*?\]/);
+      if (match) {
+        const groups = JSON.parse(match[0]) as string[];
+        if (Array.isArray(groups) && groups.length > 0) {
+          if (!groups.includes('interaction')) groups.push('interaction');
+          logger.info('Classified intent', { groups });
+          return groups;
+        }
+      }
+    } catch (e) {
+      logger.warn('Classifier failed', { error: (e as Error).message });
+    }
+    return ['analytics', 'campaign_read', 'campaign_edit', 'interaction'];
+  }
+
+  /** Layer 2: Summarize tool result — no raw JSON dumps in context */
+  private summarizeResult(tool: string, result: string, data: unknown): string {
+    if (!data) return result;
+    const d = data as Record<string, unknown>;
+    const idKey = Object.keys(d).find((k) => k.endsWith('_id'));
+    if (idKey) return `${result} (${idKey}: ${d[idKey]})`;
+    return result;
   }
 
   // ============================================================
@@ -229,6 +274,11 @@ export class CampaignHarness {
   // ============================================================
 
   async *runStandalone(message: string, chatHistory: ChatMessage[]): AsyncGenerator<HarnessEvent> {
+    // Classify intent to pick only relevant tools
+    const groups = await this.classifyIntent(message);
+    this.standaloneTools = getToolsByGroups(groups);
+    logger.info(`Standalone: ${groups.join(', ')} → ${this.standaloneTools.length} tools (was 22)`);
+
     yield { type: 'stage', stage: 'standalone', content: 'Processing your request...' };
 
     const ctx: PipelineContext = {
@@ -256,7 +306,10 @@ export class CampaignHarness {
     stage: PipelineStage,
     ctx: PipelineContext,
   ): AsyncGenerator<HarnessEvent> {
-    const tools = getToolsForStage(stage);
+    // Use classifier-selected tools for standalone, stage-specific for pipeline
+    const tools = stage === 'standalone' && this.standaloneTools.length > 0
+      ? this.standaloneTools
+      : getToolsForStage(stage);
     const systemPrompt = STAGE_PROMPTS[stage];
     const contextSummary = this.buildContextForStage(stage, ctx);
 
@@ -267,7 +320,8 @@ export class CampaignHarness {
     const messages: Anthropic.MessageParam[] = [];
 
     // Include recent chat history
-    for (const msg of ctx.chatHistory.slice(-10)) {
+    // Layer 3: Only last 3 messages (server loads full history from DB for storage)
+    for (const msg of ctx.chatHistory.slice(-3)) {
       messages.push({
         role: msg.role === 'assistant' ? 'assistant' : 'user',
         content: msg.content,
@@ -434,10 +488,8 @@ export class CampaignHarness {
 
           yield { type: 'tool_done', tool: toolName, summary: result };
 
-          // Add tool result for next loop iteration — include data so AI can reference IDs
-          const toolResultContent = data
-            ? `${result}\n\nData: ${JSON.stringify(data)}`
-            : result;
+          // Layer 2: Summarize result — don't dump raw JSON into context
+          const toolResultContent = this.summarizeResult(toolName, result, data);
 
           toolResults.push({
             type: 'tool_result',
@@ -455,6 +507,21 @@ export class CampaignHarness {
       // Add assistant response + tool results to messages for next loop
       messages.push({ role: 'assistant', content: response.content });
       messages.push({ role: 'user', content: toolResults });
+
+      // Layer 3: After 4+ iterations, compress older messages to save context
+      if (loopCount >= 4 && messages.length > 8) {
+        // Keep first 2 messages (system context) + last 4 (recent tool calls)
+        const kept = [...messages.slice(0, 2), ...messages.slice(-4)];
+        const compressed = messages.slice(2, -4);
+        const summary = compressed.map((m) => {
+          const content = typeof m.content === 'string' ? m.content : '[tool interaction]';
+          return content.slice(0, 80);
+        }).join(' | ');
+        kept.splice(2, 0, { role: 'user' as const, content: `[Previous context compressed: ${summary}]` });
+        messages.length = 0;
+        messages.push(...kept);
+        logger.info(`Compressed context: ${compressed.length} messages → 1 summary`);
+      }
     }
   }
 

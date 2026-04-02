@@ -1212,18 +1212,52 @@ export async function executeTool(
 
 export type PipelineStage = 'gather' | 'research' | 'strategy' | 'build' | 'present' | 'edit' | 'approve' | 'standalone';
 
+// Tool groups for intent-based selection
+export const TOOL_GROUPS: Record<string, ToolName[]> = {
+  campaign_create: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images'],
+  campaign_read: ['get_campaign_performance', 'validate_campaign'],
+  campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad'],
+  research: ['research_keywords', 'analyze_competitors'],
+  analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities'],
+  reports: ['send_report', 'schedule_report', 'manage_report_schedules'],
+  interaction: ['ask_user_questions'],
+};
+
+// Default fallback groups for vague/unclear prompts
+export const FALLBACK_GROUPS = ['analytics', 'campaign_read', 'campaign_edit', 'interaction'];
+
+/**
+ * Get tools for a specific pipeline stage (used by pipeline stages)
+ */
 export function getToolsForStage(stage: PipelineStage): Anthropic.Tool[] {
   const toolsByStage: Record<PipelineStage, ToolName[]> = {
     gather: ['ask_user_questions'],
     research: ['research_keywords', 'analyze_competitors'],
-    strategy: [], // No tools — AI reasons with accumulated context
+    strategy: [],
     build: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'delete_ad_group', 'delete_ad'],
     present: ['validate_campaign'],
     edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'create_ad_group', 'create_ad', 'build_tracking_urls'],
     approve: ['validate_campaign', 'submit_for_approval'],
-    standalone: TOOL_DEFINITIONS.map((t) => t.name as ToolName), // All tools
+    standalone: [], // Will be filled by classifier — empty here
   };
 
   const allowedNames = toolsByStage[stage] || [];
   return TOOL_DEFINITIONS.filter((t) => allowedNames.includes(t.name as ToolName));
+}
+
+/**
+ * Get tools by group names (used by standalone stage with classifier)
+ */
+export function getToolsByGroups(groups: string[]): Anthropic.Tool[] {
+  const toolNames = new Set<string>();
+  for (const group of groups) {
+    const groupTools = TOOL_GROUPS[group];
+    if (groupTools) {
+      groupTools.forEach((t) => toolNames.add(t));
+    }
+  }
+  // Always include interaction tools
+  TOOL_GROUPS.interaction.forEach((t) => toolNames.add(t));
+
+  return TOOL_DEFINITIONS.filter((t) => toolNames.has(t.name));
 }

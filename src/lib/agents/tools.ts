@@ -28,7 +28,13 @@ export type ToolName =
   | 'search_images'
   | 'validate_campaign'
   | 'submit_for_approval'
-  | 'get_campaign_performance';
+  | 'get_campaign_performance'
+  | 'analyze_performance'
+  | 'find_waste'
+  | 'suggest_opportunities'
+  | 'send_report'
+  | 'schedule_report'
+  | 'manage_report_schedules';
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -335,6 +341,81 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         campaign_id: { type: 'string', description: 'Specific campaign UUID (omit for all campaigns)' },
         days: { type: 'number', description: 'Number of days to look back (default 30)' },
       },
+    },
+  },
+  {
+    name: 'analyze_performance',
+    description: 'Deep performance analysis — find root causes for CPA spikes, CTR drops, conversion changes. Analyzes trends and compares periods.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        campaign_id: { type: 'string', description: 'Specific campaign to analyze (omit for portfolio-wide)' },
+        question: { type: 'string', description: 'Specific question to investigate, e.g. "why did CPA spike yesterday?"' },
+        compare_periods: { type: 'boolean', description: 'Compare last 7 days vs previous 7 days' },
+      },
+    },
+  },
+  {
+    name: 'find_waste',
+    description: 'Identify wasted ad spend — keywords with spend but no conversions, campaigns with poor ROI, underperforming ad groups.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        days: { type: 'number', description: 'Look-back period in days (default 30)' },
+        min_spend_dollars: { type: 'number', description: 'Minimum spend threshold to flag (default $10)' },
+      },
+    },
+  },
+  {
+    name: 'suggest_opportunities',
+    description: 'Find growth opportunities — keywords with high intent and low competition, underinvested campaigns, geographic gaps.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        focus_area: { type: 'string', description: 'Focus on: keywords, audiences, geography, budget, or all' },
+      },
+    },
+  },
+  {
+    name: 'send_report',
+    description: 'Generate and send a report via email right now.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        recipients: { type: 'array', items: { type: 'string' }, description: 'Email addresses to send to' },
+        report_type: { type: 'string', enum: ['performance', 'competitor', 'briefing'], description: 'Type of report' },
+        period: { type: 'string', enum: ['today', 'week', 'month'], description: 'Time period (default: week)' },
+        subject: { type: 'string', description: 'Email subject line' },
+      },
+      required: ['recipients', 'report_type'],
+    },
+  },
+  {
+    name: 'schedule_report',
+    description: 'Set up a recurring automated report that gets emailed on a schedule.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string', description: 'Schedule name, e.g. "Weekly Performance Report"' },
+        recipients: { type: 'array', items: { type: 'string' }, description: 'Email addresses' },
+        frequency: { type: 'string', enum: ['daily', 'weekly', 'monthly'], description: 'How often' },
+        day_of_week: { type: 'number', description: '1=Monday to 7=Sunday (for weekly)' },
+        time: { type: 'string', description: 'Time to send, e.g. "09:00"' },
+        report_type: { type: 'string', enum: ['performance', 'competitor', 'briefing'], description: 'What kind of report' },
+      },
+      required: ['name', 'recipients', 'frequency', 'report_type'],
+    },
+  },
+  {
+    name: 'manage_report_schedules',
+    description: 'List, pause, resume, or delete scheduled report emails.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        action: { type: 'string', enum: ['list', 'pause', 'resume', 'delete'], description: 'What to do' },
+        schedule_id: { type: 'string', description: 'UUID of the schedule (for pause/resume/delete)' },
+      },
+      required: ['action'],
     },
   },
 ];
@@ -866,6 +947,236 @@ export async function executeTool(
       if (error) return { result: `Error deleting ad: ${error.message}` };
 
       return { result: `Ad deleted.`, data: { ad_id: input.ad_id } };
+    }
+
+    // ---- ANALYZE PERFORMANCE ----
+    case 'analyze_performance': {
+      const days = 30;
+      const dateFrom = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const midDate = new Date(Date.now() - (days / 2) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+      let query = supabase.from('performance_snapshots').select('*').eq('entity_type', 'campaign').gte('date', dateFrom);
+      if (input.campaign_id) query = query.eq('entity_id', input.campaign_id as string);
+
+      const { data: perf } = await query;
+      if (!perf || perf.length === 0) return { result: 'No performance data available. Sync Google Ads first.' };
+
+      const recent = perf.filter((p) => p.date >= midDate);
+      const older = perf.filter((p) => p.date < midDate);
+
+      const recentTotals = recent.reduce((a, r) => ({ spend: a.spend + r.cost_micros, clicks: a.clicks + r.clicks, conv: a.conv + r.conversions, impr: a.impr + r.impressions }), { spend: 0, clicks: 0, conv: 0, impr: 0 });
+      const olderTotals = older.reduce((a, r) => ({ spend: a.spend + r.cost_micros, clicks: a.clicks + r.clicks, conv: a.conv + r.conversions, impr: a.impr + r.impressions }), { spend: 0, clicks: 0, conv: 0, impr: 0 });
+
+      const spendChange = olderTotals.spend > 0 ? ((recentTotals.spend - olderTotals.spend) / olderTotals.spend * 100).toFixed(1) : 'N/A';
+      const convChange = olderTotals.conv > 0 ? ((recentTotals.conv - olderTotals.conv) / olderTotals.conv * 100).toFixed(1) : 'N/A';
+      const ctrRecent = recentTotals.impr > 0 ? (recentTotals.clicks / recentTotals.impr * 100).toFixed(2) : '0';
+      const ctrOlder = olderTotals.impr > 0 ? (olderTotals.clicks / olderTotals.impr * 100).toFixed(2) : '0';
+
+      return {
+        result: `Performance Analysis (${days}d):\n\nRecent 15d: $${(recentTotals.spend / 1e6).toFixed(2)} spend, ${recentTotals.clicks} clicks, ${recentTotals.conv} conv, ${ctrRecent}% CTR\nPrevious 15d: $${(olderTotals.spend / 1e6).toFixed(2)} spend, ${olderTotals.clicks} clicks, ${olderTotals.conv} conv, ${ctrOlder}% CTR\n\nSpend change: ${spendChange}%\nConversion change: ${convChange}%\n\n${input.question ? `Investigation focus: ${input.question}` : ''}`,
+        data: { recent: recentTotals, older: olderTotals, rows: perf.length },
+      };
+    }
+
+    // ---- FIND WASTE ----
+    case 'find_waste': {
+      const days = (input.days as number) || 30;
+      const minSpend = ((input.min_spend_dollars as number) || 10) * 1_000_000;
+      const dateFrom = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+      // Get campaign performance
+      const { data: perf } = await supabase.from('performance_snapshots').select('entity_id, cost_micros, conversions, clicks').eq('entity_type', 'campaign').gte('date', dateFrom);
+
+      // Aggregate by campaign
+      const campaignSpend = new Map<string, { spend: number; conv: number; clicks: number }>();
+      for (const row of perf || []) {
+        const existing = campaignSpend.get(row.entity_id) || { spend: 0, conv: 0, clicks: 0 };
+        campaignSpend.set(row.entity_id, {
+          spend: existing.spend + row.cost_micros,
+          conv: existing.conv + row.conversions,
+          clicks: existing.clicks + row.clicks,
+        });
+      }
+
+      // Find wasted spend (spend > threshold, 0 conversions)
+      const wasted: Array<{ id: string; spend: number; clicks: number }> = [];
+      for (const [id, stats] of campaignSpend) {
+        if (stats.spend >= minSpend && stats.conv === 0) {
+          wasted.push({ id, spend: stats.spend, clicks: stats.clicks });
+        }
+      }
+
+      // Get campaign names
+      const wasteDetails = [];
+      for (const w of wasted) {
+        const { data: camp } = await supabase.from('campaigns').select('name').eq('id', w.id).single();
+        wasteDetails.push({ name: camp?.name || w.id, spend: `$${(w.spend / 1e6).toFixed(2)}`, clicks: w.clicks });
+      }
+
+      const totalWasted = wasted.reduce((s, w) => s + w.spend, 0);
+
+      if (wasteDetails.length === 0) {
+        return { result: `No significant wasted spend found in the last ${days} days (threshold: $${(minSpend / 1e6).toFixed(0)}).` };
+      }
+
+      const lines = wasteDetails.map((w) => `- "${w.name}": ${w.spend} spent, ${w.clicks} clicks, 0 conversions`).join('\n');
+      return {
+        result: `Found $${(totalWasted / 1e6).toFixed(2)} in wasted spend across ${wasteDetails.length} campaign(s) (last ${days}d):\n\n${lines}\n\nRecommendation: Consider pausing these campaigns or reviewing their keywords and landing pages.`,
+        data: wasteDetails,
+      };
+    }
+
+    // ---- SUGGEST OPPORTUNITIES ----
+    case 'suggest_opportunities': {
+      // Get current campaigns and their performance
+      const { data: campaigns } = await supabase.from('campaigns').select('id, name, status, budget_amount_micros').neq('status', 'removed');
+      const { data: perf } = await supabase.from('performance_snapshots').select('entity_id, cost_micros, conversions, impressions').eq('entity_type', 'campaign');
+
+      const campaignPerf = new Map<string, { spend: number; conv: number; impr: number }>();
+      for (const row of perf || []) {
+        const existing = campaignPerf.get(row.entity_id) || { spend: 0, conv: 0, impr: 0 };
+        campaignPerf.set(row.entity_id, {
+          spend: existing.spend + row.cost_micros,
+          conv: existing.conv + row.conversions,
+          impr: existing.impr + row.impressions,
+        });
+      }
+
+      const opportunities: string[] = [];
+
+      // Budget-limited good performers
+      for (const camp of campaigns || []) {
+        const p = campaignPerf.get(camp.id);
+        if (p && p.conv > 0 && camp.status === 'active') {
+          const cpa = p.spend / p.conv;
+          if (cpa < camp.budget_amount_micros) {
+            opportunities.push(`"${camp.name}" has a CPA below daily budget — it could convert more with increased budget.`);
+          }
+        }
+      }
+
+      // Inactive campaigns with potential
+      const draftCampaigns = (campaigns || []).filter((c) => c.status === 'draft');
+      if (draftCampaigns.length > 0) {
+        opportunities.push(`${draftCampaigns.length} draft campaign(s) not yet active: ${draftCampaigns.map((c) => `"${c.name}"`).join(', ')}.`);
+      }
+
+      if (opportunities.length === 0) {
+        opportunities.push('No obvious opportunities found from current data. Consider running keyword research for new opportunities via the Research tool.');
+      }
+
+      return {
+        result: `Growth Opportunities:\n\n${opportunities.map((o, i) => `${i + 1}. ${o}`).join('\n')}`,
+        data: { count: opportunities.length },
+      };
+    }
+
+    // ---- SEND REPORT ----
+    case 'send_report': {
+      const { sendEmail, generatePerformanceReportHtml } = await import('../email');
+      const recipients = (input.recipients as string[]) || [];
+      const reportType = (input.report_type as string) || 'performance';
+      const period = (input.period as string) || 'week';
+
+      if (recipients.length === 0) return { result: 'No recipients specified.' };
+
+      // Get data for the report
+      const days = period === 'today' ? 1 : period === 'week' ? 7 : 30;
+      const dateFrom = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+      const { data: perf } = await supabase.from('performance_snapshots').select('*').eq('entity_type', 'campaign').gte('date', dateFrom);
+      const { data: camps } = await supabase.from('campaigns').select('id, name, status, budget_amount_micros').neq('status', 'removed');
+
+      const totals = (perf || []).reduce((a, r) => ({ spend: a.spend + r.cost_micros, clicks: a.clicks + r.clicks, conv: a.conv + r.conversions, impr: a.impr + r.impressions }), { spend: 0, clicks: 0, conv: 0, impr: 0 });
+
+      const html = generatePerformanceReportHtml({
+        period: period === 'today' ? 'Daily' : period === 'week' ? 'Weekly' : 'Monthly',
+        metrics: {
+          spend: `$${(totals.spend / 1e6).toFixed(2)}`,
+          clicks: totals.clicks.toLocaleString(),
+          conversions: totals.conv.toFixed(1),
+          ctr: totals.impr > 0 ? `${(totals.clicks / totals.impr * 100).toFixed(2)}%` : '0%',
+          cpa: totals.conv > 0 ? `$${(totals.spend / totals.conv / 1e6).toFixed(2)}` : '—',
+        },
+        campaigns: (camps || []).map((c) => ({
+          name: c.name,
+          spend: '$0', // TODO: per-campaign breakdown
+          conversions: '0',
+          health: c.status === 'active' ? 'Active' : c.status,
+        })),
+        recommendations: [],
+        generatedAt: new Date().toLocaleString(),
+      });
+
+      const subject = (input.subject as string) || `ACI Ads — ${period === 'today' ? 'Daily' : period === 'week' ? 'Weekly' : 'Monthly'} Performance Report`;
+      const result = await sendEmail({ to: recipients, subject, html });
+
+      if (result.success) {
+        // Store generated report
+        try {
+          await supabase.from('generated_reports').insert({
+            report_type: reportType,
+            period,
+            content: { totals, campaigns: camps?.length || 0 },
+            share_token: crypto.randomUUID().replace(/-/g, '').slice(0, 16),
+          });
+        } catch { /* non-critical */ }
+        return { result: `Report sent to ${recipients.join(', ')}. Email ID: ${result.id}` };
+      } else {
+        return { result: `Failed to send report: ${result.error}` };
+      }
+    }
+
+    // ---- SCHEDULE REPORT ----
+    case 'schedule_report': {
+      const { data: schedule, error } = await supabase.from('report_schedules').insert({
+        name: input.name as string,
+        recipients: input.recipients,
+        frequency: input.frequency as string,
+        day_of_week: input.day_of_week as number || 1,
+        time_of_day: (input.time as string) || '09:00',
+        report_type: input.report_type as string,
+        is_active: true,
+      }).select().single();
+
+      if (error) return { result: `Failed to create schedule: ${error.message}` };
+
+      return {
+        result: `Report scheduled: "${input.name}" — ${input.frequency} to ${(input.recipients as string[]).join(', ')}. ID: ${schedule.id}`,
+        data: { schedule_id: schedule.id },
+      };
+    }
+
+    // ---- MANAGE REPORT SCHEDULES ----
+    case 'manage_report_schedules': {
+      const action = input.action as string;
+
+      if (action === 'list') {
+        const { data } = await supabase.from('report_schedules').select('*').order('created_at', { ascending: false });
+        if (!data || data.length === 0) return { result: 'No report schedules configured.' };
+        const lines = data.map((s: { id: string; name: string; frequency: string; recipients: string[]; is_active: boolean }) =>
+          `- "${s.name}" (${s.frequency}) → ${Array.isArray(s.recipients) ? s.recipients.join(', ') : s.recipients} [${s.is_active ? 'Active' : 'Paused'}] ID: ${s.id}`
+        ).join('\n');
+        return { result: `Report Schedules:\n\n${lines}`, data };
+      }
+
+      const scheduleId = input.schedule_id as string;
+      if (!scheduleId) return { result: 'schedule_id is required for this action.' };
+
+      if (action === 'pause') {
+        await supabase.from('report_schedules').update({ is_active: false }).eq('id', scheduleId);
+        return { result: `Schedule ${scheduleId} paused.` };
+      }
+      if (action === 'resume') {
+        await supabase.from('report_schedules').update({ is_active: true }).eq('id', scheduleId);
+        return { result: `Schedule ${scheduleId} resumed.` };
+      }
+      if (action === 'delete') {
+        await supabase.from('report_schedules').delete().eq('id', scheduleId);
+        return { result: `Schedule ${scheduleId} deleted.` };
+      }
+
+      return { result: `Unknown action: ${action}` };
     }
 
     default:

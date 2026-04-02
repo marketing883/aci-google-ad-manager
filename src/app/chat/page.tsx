@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { MessageSquare, Send, Sparkles, Trash2, CheckCircle, AlertCircle, Search, Wrench, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import Link from 'next/link';
@@ -165,6 +166,7 @@ const SUGGESTIONS = [
 // ============================================================
 
 export default function ChatPage() {
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -172,9 +174,23 @@ export default function ChatPage() {
   const [pendingQuestion, setPendingQuestion] = useState<HarnessEvent | null>(null);
   const [pipelineContext, setPipelineContext] = useState<unknown>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const prefillHandled = useRef(false);
 
-  // Load chat history on mount
-  useEffect(() => { loadHistory(); }, []);
+  // Load chat history on mount + handle prefill from URL
+  useEffect(() => {
+    loadHistory().then(() => {
+      // Handle ?prefill= from portfolio/briefing clicks
+      const prefill = searchParams.get('prefill');
+      if (prefill && !prefillHandled.current) {
+        prefillHandled.current = true;
+        setInput(decodeURIComponent(prefill));
+        // Auto-send after a short delay to let history load
+        setTimeout(() => {
+          handleSend(decodeURIComponent(prefill));
+        }, 500);
+      }
+    });
+  }, []);
 
   // Auto-scroll
   useEffect(() => {

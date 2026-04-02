@@ -265,7 +265,8 @@ export default function ChatPage() {
       let thinkingText = '';
       const collectedEvents: HarnessEvent[] = [];
 
-      while (true) {
+      let streamDone = false;
+      while (!streamDone) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -273,32 +274,42 @@ export default function ChatPage() {
 
         // Parse SSE events from buffer
         const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+        buffer = lines.pop() || '';
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           const data = line.slice(6).trim();
-          if (data === '[DONE]') continue;
+
+          if (data === '[DONE]') {
+            streamDone = true;
+            break;
+          }
 
           try {
             const event: HarnessEvent = JSON.parse(data);
             collectedEvents.push(event);
             setLiveEvents((prev) => [...prev, event]);
 
-            // Accumulate thinking text
             if (event.type === 'thinking' && event.content) {
               thinkingText += event.content + '\n';
             }
 
-            // Handle question — pause for user input
             if (event.type === 'question') {
               setPendingQuestion(event);
+            }
+
+            // Done event also signals end
+            if (event.type === 'done') {
+              streamDone = true;
+              break;
             }
           } catch {
             // Skip unparseable events
           }
         }
       }
+      // Release the reader
+      reader.releaseLock();
 
       // Create assistant message from collected events
       if (thinkingText.trim() || collectedEvents.length > 0) {
@@ -380,8 +391,23 @@ export default function ChatPage() {
                       ))}
                       {/* Render thinking text as markdown */}
                       {msg.content && (
-                        <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-2 [&>ul]:mb-2 [&>ol]:mb-2">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-2 [&>ul]:mb-2 [&>ol]:mb-2 [&>table]:mb-3 [&>table]:w-full [&>table]:text-xs">
+                          <ReactMarkdown
+                            components={{
+                              table: ({ children }) => (
+                                <div className="overflow-x-auto rounded-lg border border-gray-700 my-3">
+                                  <table className="w-full text-xs border-collapse">{children}</table>
+                                </div>
+                              ),
+                              thead: ({ children }) => <thead className="bg-gray-800">{children}</thead>,
+                              th: ({ children }) => <th className="px-3 py-2 text-left text-gray-300 font-medium border-b border-gray-700 whitespace-nowrap">{children}</th>,
+                              td: ({ children }) => <td className="px-3 py-2 text-gray-300 border-b border-gray-800 break-all max-w-[300px]">{children}</td>,
+                              tr: ({ children }) => <tr className="hover:bg-gray-800/30">{children}</tr>,
+                              a: ({ href, children }) => <a href={href} className="text-blue-400 hover:text-blue-300 break-all" target="_blank" rel="noopener noreferrer">{children}</a>,
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
                         </div>
                       )}
                     </div>

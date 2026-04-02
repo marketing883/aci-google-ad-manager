@@ -39,6 +39,13 @@ export async function POST(request: NextRequest) {
 
     const stream = new ReadableStream({
       async start(controller) {
+        // Send heartbeat comments every 10s to keep connection alive
+        const heartbeat = setInterval(() => {
+          try {
+            controller.enqueue(encoder.encode(`: heartbeat\n\n`));
+          } catch { /* stream may be closed */ }
+        }, 10_000);
+
         try {
           // Determine workflow
           const workflow = resumeStage ? 'pipeline' : detectWorkflow(message);
@@ -78,6 +85,7 @@ export async function POST(request: NextRequest) {
           };
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`));
         } finally {
+          clearInterval(heartbeat);
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
         }

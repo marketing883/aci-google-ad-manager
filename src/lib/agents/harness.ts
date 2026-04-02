@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { createAdminClient } from '../supabase-server';
 import { createLogger } from '../utils/logger';
 import { CONFIG } from '../config';
@@ -12,7 +13,8 @@ const logger = createLogger('Harness');
 // Campaign Harness — Hybrid Pipeline + AI Tools
 //
 // Deterministic pipeline controls the stages.
-// AI (Opus) does the intelligent work at each stage via tool_use.
+// Per-stage model tiers: Opus for heavy reasoning, Sonnet for simple tasks.
+// OpenAI fallback (GPT-4o / GPT-4o-mini) if Anthropic fails.
 // ============================================================
 
 export interface HarnessEvent {
@@ -160,12 +162,12 @@ Always be specific with numbers and data. Never give vague answers when you can 
 
 export class CampaignHarness {
   private anthropic: Anthropic;
+  private openai: OpenAI;
   private supabase = createAdminClient();
-  private model: string;
 
   constructor() {
     this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    this.model = CONFIG.models.orchestrator.model;
+    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
 
   // ============================================================
@@ -258,6 +260,9 @@ export class CampaignHarness {
     const systemPrompt = STAGE_PROMPTS[stage];
     const contextSummary = this.buildContextForStage(stage, ctx);
 
+    // Get stage-specific model config
+    const stageConfig = CONFIG.stageModels[stage] || CONFIG.stageModels.standalone;
+
     // Build messages
     const messages: Anthropic.MessageParam[] = [];
 
@@ -275,32 +280,111 @@ export class CampaignHarness {
       content: `${contextSummary}\n\nUser's message: ${ctx.userMessage}`,
     });
 
-    // Agentic loop — keep calling AI until it stops calling tools
+    // Agentic loop — per-stage loop limit
     let loopCount = 0;
-    const MAX_LOOPS = 20; // Safety limit
+    const MAX_LOOPS = stageConfig.maxLoops;
 
     while (loopCount < MAX_LOOPS) {
       loopCount++;
 
-      // Rate limit
-      await waitForCapacity('anthropic', 5000);
+      let response: Anthropic.Message;
 
-      // Use streaming to avoid timeout on long Opus calls
-      const stream = this.anthropic.messages.stream({
-        model: this.model,
-        max_tokens: CONFIG.models.orchestrator.maxTokens,
-        temperature: CONFIG.models.orchestrator.temperature,
-        system: systemPrompt,
-        messages,
-        ...(tools.length > 0 ? { tools, tool_choice: { type: 'auto' as const } } : {}),
-      });
+      // Try Anthropic first, fall back to OpenAI
+      try {
+        await waitForCapacity('anthropic', 5000);
 
-      const response = await stream.finalMessage();
+        const stream = this.anthropic.messages.stream({
+          model: stageConfig.model,
+          max_tokens: stageConfig.maxTokens,
+          temperature: 0.5,
+          system: systemPrompt,
+          messages,
+          ...(tools.length > 0 ? { tools, tool_choice: { type: 'auto' as const } } : {}),
+        });
 
-      recordRequest('anthropic', response.usage.input_tokens);
+        response = await stream.finalMessage();
+        recordRequest('anthropic', response.usage.input_tokens);
+      } catch (anthropicError) {
+        logger.warn(`Anthropic failed for stage ${stage} (${stageConfig.model}), falling back to OpenAI (${stageConfig.fallback})`, {
+          error: (anthropicError as Error).message,
+        });
 
-      // Log the call
-      await this.logCall(stage, response.usage);
+        // Fallback to OpenAI
+        try {
+          await waitForCapacity('openai', 5000);
+
+          const openaiResponse = await this.openai.chat.completions.create({
+            model: stageConfig.fallback,
+            max_tokens: stageConfig.maxTokens,
+            temperature: 0.5,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages.map((m) => ({
+                role: m.role as 'user' | 'assistant',
+                content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+              })),
+            ],
+            // OpenAI tool_use format is different — only use for non-tool stages
+            ...(tools.length > 0 ? {
+              tools: tools.map((t) => ({
+                type: 'function' as const,
+                function: {
+                  name: t.name,
+                  description: t.description || '',
+                  parameters: t.input_schema as Record<string, unknown>,
+                },
+              })),
+            } : {}),
+          });
+
+          recordRequest('openai', openaiResponse.usage?.prompt_tokens || 0);
+
+          // Convert OpenAI response to Anthropic format for unified processing
+          const content: Anthropic.ContentBlock[] = [];
+
+          for (const choice of openaiResponse.choices) {
+            if (choice.message.content) {
+              content.push({ type: 'text', text: choice.message.content } as Anthropic.TextBlock);
+            }
+            if (choice.message.tool_calls) {
+              for (const tc of choice.message.tool_calls) {
+                content.push({
+                  type: 'tool_use',
+                  id: tc.id,
+                  name: tc.function.name,
+                  input: JSON.parse(tc.function.arguments || '{}'),
+                } as Anthropic.ToolUseBlock);
+              }
+            }
+          }
+
+          response = {
+            id: openaiResponse.id,
+            type: 'message',
+            role: 'assistant',
+            content,
+            model: stageConfig.fallback,
+            stop_reason: openaiResponse.choices[0]?.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn',
+            usage: {
+              input_tokens: openaiResponse.usage?.prompt_tokens || 0,
+              output_tokens: openaiResponse.usage?.completion_tokens || 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+              service_tier: 'default',
+            },
+          } as unknown as Anthropic.Message;
+
+        } catch (openaiError) {
+          logger.error(`Both Anthropic and OpenAI failed for stage ${stage}`, {
+            anthropicError: (anthropicError as Error).message,
+            openaiError: (openaiError as Error).message,
+          });
+          throw new Error(`AI unavailable: Anthropic (${(anthropicError as Error).message}) and OpenAI (${(openaiError as Error).message}) both failed`);
+        }
+      }
+
+      // Log the call (model info for cost tracking)
+      await this.logCall(stage, response.usage, response.model || stageConfig.model);
 
       // Process response blocks
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
@@ -430,12 +514,13 @@ export class CampaignHarness {
   private async logCall(
     stage: string,
     usage: { input_tokens: number; output_tokens: number },
+    model?: string,
   ): Promise<void> {
     try {
       await this.supabase.from('agent_logs').insert({
         agent_name: 'CampaignHarness',
         action: `stage:${stage}`,
-        model_used: this.model,
+        model_used: model || 'unknown',
         tokens_used: { input: usage.input_tokens, output: usage.output_tokens },
         status: 'success',
       });

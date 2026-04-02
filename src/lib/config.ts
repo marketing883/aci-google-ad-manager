@@ -3,32 +3,28 @@
 // ============================================================
 
 export const CONFIG = {
-  // AI Model configuration
+  // AI Model tiers
   models: {
-    // Orchestrator tier — highest reasoning for intent parsing, planning, coordination
     orchestrator: {
       provider: 'anthropic' as const,
       model: 'claude-opus-4-20250514',
       maxTokens: 16384,
       temperature: 0.5,
       fallbacks: [
-        { provider: 'openai' as const, model: 'o3' },
+        { provider: 'openai' as const, model: 'gpt-4o' },
         { provider: 'anthropic' as const, model: 'claude-sonnet-4-20250514' },
       ],
     },
-    // Strategy tier — complex reasoning, research, optimization
     strategy: {
       provider: 'anthropic' as const,
       model: 'claude-sonnet-4-20250514',
       maxTokens: 8192,
       temperature: 0.7,
       fallbacks: [
-        { provider: 'anthropic' as const, model: 'claude-3-5-haiku-20241022' },
         { provider: 'openai' as const, model: 'gpt-4o' },
         { provider: 'openai' as const, model: 'gpt-4o-mini' },
       ],
     },
-    // Fast tier — bulk generation, templated work
     fast: {
       provider: 'anthropic' as const,
       model: 'claude-3-5-haiku-20241022',
@@ -39,6 +35,18 @@ export const CONFIG = {
       ],
     },
   },
+
+  // Per-stage model assignment + loop limits
+  stageModels: {
+    gather:     { model: 'claude-sonnet-4-20250514', maxTokens: 4096, maxLoops: 3, fallback: 'gpt-4o-mini' },
+    research:   { model: 'claude-opus-4-20250514', maxTokens: 8192, maxLoops: 5, fallback: 'gpt-4o' },
+    strategy:   { model: 'claude-opus-4-20250514', maxTokens: 8192, maxLoops: 3, fallback: 'gpt-4o' },
+    build:      { model: 'claude-opus-4-20250514', maxTokens: 8192, maxLoops: 15, fallback: 'gpt-4o' },
+    present:    { model: 'claude-sonnet-4-20250514', maxTokens: 4096, maxLoops: 3, fallback: 'gpt-4o-mini' },
+    edit:       { model: 'claude-opus-4-20250514', maxTokens: 8192, maxLoops: 5, fallback: 'gpt-4o' },
+    approve:    { model: 'claude-sonnet-4-20250514', maxTokens: 4096, maxLoops: 3, fallback: 'gpt-4o-mini' },
+    standalone: { model: 'claude-opus-4-20250514', maxTokens: 8192, maxLoops: 10, fallback: 'gpt-4o' },
+  } as Record<string, { model: string; maxTokens: number; maxLoops: number; fallback: string }>,
 
   // Rate limits per provider (requests/tokens per minute)
   rateLimits: {
@@ -55,7 +63,6 @@ export const CONFIG = {
   // Agent settings
   agents: {
     maxQARetries: 2,
-    // Regex patterns that mean "yes, execute"
     confirmationPattern: /^(go\s*(?:ahead|for it)?|proceed|yes|do it|continue|confirmed?|approved?|execute|run it|let'?s\s*(?:go|do it)|ok(?:ay)?|sure|yep|yup|affirmative|start|begin|launch|make it happen|sounds good|perfect|lgtm|ship it|g\s*ahead|that'?s?\s*(?:good|great|fine|perfect))[\s!.]*$/i,
   },
 
@@ -82,25 +89,19 @@ export const CONFIG = {
   MICROS_PER_DOLLAR: 1_000_000,
 } as const;
 
-// Helper: convert dollars to micros
+// Helpers
 export function dollarsToMicros(dollars: number): number {
   return Math.round(dollars * CONFIG.MICROS_PER_DOLLAR);
 }
 
-// Helper: convert micros to dollars
 export function microsToDollars(micros: number): number {
   return micros / CONFIG.MICROS_PER_DOLLAR;
 }
 
-// Helper: format micros as currency string
 export function formatMicros(micros: number, currency = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-  }).format(microsToDollars(micros));
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(microsToDollars(micros));
 }
 
-// Helper: estimate token count (rough ~4 chars per token)
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }

@@ -445,24 +445,30 @@ export async function executeTool(
       logger.info('Researching keywords', { count: keywords.length });
 
       const results = [];
+      const errors: string[] = [];
       for (const kw of keywords.slice(0, 5)) {
         try {
           const data = await comprehensiveKeywordResearch(kw, location);
           results.push(data);
         } catch (e) {
-          logger.warn(`Research failed for "${kw}"`, { error: (e as Error).message });
+          const errMsg = (e as Error).message;
+          errors.push(`"${kw}": ${errMsg}`);
+          logger.warn(`Research failed for "${kw}"`, { error: errMsg });
         }
       }
 
       // Also try Google Ads Keyword Planner
       let googleKeywords: unknown[] = [];
+      let googleError = '';
       try {
         const client = await createGoogleAdsClient();
         if (client) {
           googleKeywords = await client.generateKeywordIdeas(keywords.slice(0, 10));
+        } else {
+          googleError = 'Google Ads not connected';
         }
-      } catch {
-        // Google Ads not connected — that's fine
+      } catch (e) {
+        googleError = (e as Error).message;
       }
 
       // Store in cache
@@ -476,9 +482,19 @@ export async function executeTool(
       } catch { /* non-critical cache write */ }
 
       const totalKeywords = results.reduce((sum, r) => sum + (r.related?.length || 0), 0);
-      const summary = `Found ${totalKeywords} related keywords across ${results.length} seed terms. Google Ads Planner returned ${googleKeywords.length} additional ideas.`;
+      let summary = `Found ${totalKeywords} related keywords across ${results.length} seed terms. Google Ads Planner returned ${googleKeywords.length} additional ideas.`;
 
-      return { result: summary, data: { dataforseo: results, google_ads: googleKeywords } };
+      if (errors.length > 0) {
+        summary += `\n\nDataForSEO errors (${errors.length}): ${errors.join('; ')}`;
+      }
+      if (googleError) {
+        summary += `\nGoogle Ads Planner: ${googleError}`;
+      }
+      if (totalKeywords === 0 && googleKeywords.length === 0) {
+        summary += '\n\nNo keyword data returned. Check DataForSEO credentials (DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD) and Google Ads API access level.';
+      }
+
+      return { result: summary, data: { dataforseo: results, google_ads: googleKeywords, errors } };
     }
 
     // ---- ANALYZE COMPETITORS ----

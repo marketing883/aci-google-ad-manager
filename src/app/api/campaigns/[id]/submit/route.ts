@@ -86,10 +86,27 @@ export async function POST(
         campaign_id: id,
         campaign_name: campaign.name,
         campaign_type: campaign.campaign_type,
-        budget: campaign.budget_amount_micros,
+        budget_micros: campaign.budget_amount_micros,
+        bidding_strategy: campaign.bidding_strategy,
+        geo_targets: campaign.geo_targets,
+        language_targets: campaign.language_targets,
         ad_groups_count: (adGroups || []).length,
         ads_count: ads.length,
         keywords_count: keywords.length,
+        ad_groups: (adGroups || []).map((ag: { id: string; name: string; cpc_bid_micros: number | null }) => ({
+          name: ag.name,
+          bid_micros: ag.cpc_bid_micros,
+          keywords: keywords
+            .filter((k) => k.ad_group_id === ag.id)
+            .map((k) => ({ text: k.text, match_type: k.match_type })),
+          ads: ads
+            .filter((a) => a.ad_group_id === ag.id)
+            .map((a) => ({
+              headlines: a.headlines,
+              descriptions: a.descriptions,
+              final_urls: a.final_urls,
+            })),
+        })),
       },
       ai_reasoning: `Campaign "${campaign.name}" submitted for push to Google Ads. QA: ${qaResult.passed ? 'PASSED' : `FAILED (${qaResult.errors.length} errors)`}`,
       confidence_score: qaResult.passed ? 1.0 : 0.5,

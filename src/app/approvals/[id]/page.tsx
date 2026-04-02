@@ -87,17 +87,64 @@ export default function ApprovalDetailPage() {
         {/* Diff View */}
         <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h2 className="text-lg font-semibold mb-4">Proposed Changes</h2>
-          {/* Human-readable summary for campaign pushes */}
+          {/* Full campaign structure for campaign pushes */}
           {item.action_type === 'push_to_google_ads' && item.payload ? (
-            <div className="bg-gray-800 rounded-lg p-5 space-y-3">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><span className="text-gray-400">Campaign:</span> <span className="text-white font-medium">{item.payload.campaign_name as string}</span></div>
-                <div><span className="text-gray-400">Type:</span> <span className="text-white">{item.payload.campaign_type as string}</span></div>
-                <div><span className="text-gray-400">Budget:</span> <span className="text-white">${((item.payload.budget as number) / 1_000_000).toFixed(2)}/day</span></div>
-                <div><span className="text-gray-400">Ad Groups:</span> <span className="text-white">{item.payload.ad_groups_count as number}</span></div>
-                <div><span className="text-gray-400">Ads:</span> <span className="text-white">{item.payload.ads_count as number}</span></div>
-                <div><span className="text-gray-400">Keywords:</span> <span className="text-white">{item.payload.keywords_count as number}</span></div>
+            <div className="space-y-4">
+              {/* Campaign overview */}
+              <div className="bg-gray-800 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">Campaign Settings</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div><span className="text-gray-400">Name:</span> <span className="text-white font-medium">{item.payload.campaign_name as string}</span></div>
+                  <div><span className="text-gray-400">Type:</span> <span className="text-white">{item.payload.campaign_type as string}</span></div>
+                  <div><span className="text-gray-400">Budget:</span> <span className="text-white">${((item.payload.budget_micros as number || item.payload.budget as number || 0) / 1_000_000).toFixed(2)}/day</span></div>
+                  <div><span className="text-gray-400">Bidding:</span> <span className="text-white">{(item.payload.bidding_strategy as string || '—').replace(/_/g, ' ')}</span></div>
+                  <div><span className="text-gray-400">Locations:</span> <span className="text-white">{Array.isArray(item.payload.geo_targets) ? (item.payload.geo_targets as Array<{country?: string}>).map((g) => g.country || JSON.stringify(g)).join(', ') : '—'}</span></div>
+                  <div><span className="text-gray-400">Totals:</span> <span className="text-white">{item.payload.ad_groups_count as number} ad groups, {item.payload.ads_count as number} ads, {item.payload.keywords_count as number} keywords</span></div>
+                </div>
               </div>
+
+              {/* Ad groups with keywords and ads */}
+              {Array.isArray(item.payload.ad_groups) && (item.payload.ad_groups as Array<{name: string; bid_micros?: number; keywords?: Array<{text: string; match_type: string}>; ads?: Array<{headlines: Array<{text: string}>; descriptions: Array<{text: string}>; final_urls: string[]}>}>).map((ag, i) => (
+                <div key={i} className="bg-gray-800 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-white">{ag.name}</h3>
+                    {ag.bid_micros && <span className="text-xs text-gray-400">Bid: ${(ag.bid_micros / 1_000_000).toFixed(2)}</span>}
+                  </div>
+
+                  {/* Keywords */}
+                  {ag.keywords && ag.keywords.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-xs font-medium text-gray-400 mb-1.5">Keywords ({ag.keywords.length})</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {ag.keywords.map((kw, j) => (
+                          <span key={j} className={`px-2 py-0.5 text-xs rounded ${kw.match_type === 'EXACT' ? 'bg-blue-900/40 text-blue-300' : kw.match_type === 'PHRASE' ? 'bg-purple-900/40 text-purple-300' : 'bg-gray-700 text-gray-300'}`}>
+                            {kw.match_type === 'EXACT' ? `[${kw.text}]` : kw.match_type === 'PHRASE' ? `"${kw.text}"` : kw.text}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Ads */}
+                  {ag.ads && ag.ads.map((ad, k) => (
+                    <div key={k} className="bg-white rounded-lg p-3 mb-2">
+                      <p className="text-[10px] text-gray-500 mb-1">Ad {k + 1}</p>
+                      <p className="text-blue-800 text-sm font-medium leading-snug">
+                        {ad.headlines?.slice(0, 3).map((h) => typeof h === 'string' ? h : h.text).join(' | ')}
+                      </p>
+                      {ad.final_urls?.[0] && (
+                        <p className="text-green-700 text-xs mt-0.5">{(() => { try { return new URL(ad.final_urls[0]).hostname; } catch { return ad.final_urls[0]; } })()}</p>
+                      )}
+                      <p className="text-gray-600 text-xs mt-1">
+                        {ad.descriptions?.slice(0, 2).map((d) => typeof d === 'string' ? d : d.text).join(' ')}
+                      </p>
+                      {ad.headlines?.length > 3 && (
+                        <p className="text-[10px] text-gray-400 mt-1">+ {ad.headlines.length - 3} more headlines, {(ad.descriptions?.length || 0) > 2 ? `${ad.descriptions.length - 2} more descriptions` : ''}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">

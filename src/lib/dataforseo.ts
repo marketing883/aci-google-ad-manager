@@ -112,15 +112,17 @@ export async function getKeywordData(
       [{ keywords: [keyword], location_code: location, language_code: language }],
     );
 
-    const item = data.tasks?.[0]?.result?.[0]?.items?.[0];
-    if (!item) return null;
+    // Result can be at tasks[0].result[0] directly or tasks[0].result[0].items[0]
+    const taskResult = data.tasks?.[0]?.result;
+    const item = taskResult?.[0]?.items?.[0] || taskResult?.[0];
+    if (!item || !item.keyword) return null;
 
     const result: KeywordData = {
       keyword: item.keyword as string,
       search_volume: (item.search_volume as number) || 0,
       cpc: (item.cpc as number) || 0,
-      competition: (item.competition as number) || 0,
-      competition_level: (item.competition_level as string) || 'UNSPECIFIED',
+      competition: typeof item.competition === 'number' ? item.competition : (item.competition_index as number) || 0,
+      competition_level: (item.competition as string) || (item.competition_level as string) || 'UNSPECIFIED',
       monthly_searches: (item.monthly_searches as KeywordData['monthly_searches']) || [],
     };
 
@@ -151,14 +153,16 @@ export async function getRelatedKeywords(
       [{ keywords: [keyword], location_code: location, language_code: language, limit }],
     );
 
-    const items = data.tasks?.[0]?.result?.[0]?.items || [];
-    const results: RelatedKeyword[] = items.map((item: Record<string, unknown>) => ({
-      keyword: item.keyword as string,
+    // Items can be at result[0].items or result directly
+    const taskResult = data.tasks?.[0]?.result;
+    const items = taskResult?.[0]?.items || taskResult || [];
+    const results: RelatedKeyword[] = (Array.isArray(items) ? items : []).map((item: Record<string, unknown>) => ({
+      keyword: (item.keyword as string) || '',
       search_volume: (item.search_volume as number) || 0,
       cpc: (item.cpc as number) || 0,
-      competition: (item.competition as number) || 0,
-      competition_level: (item.competition_level as string) || 'UNSPECIFIED',
-    }));
+      competition: typeof item.competition === 'number' ? item.competition : (item.competition_index as number) || 0,
+      competition_level: typeof item.competition === 'string' ? item.competition : (item.competition_level as string) || 'UNSPECIFIED',
+    })).filter((r) => r.keyword.length > 0);
 
     setCache(cacheKey, results);
     return results;

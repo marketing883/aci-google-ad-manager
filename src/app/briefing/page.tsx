@@ -275,8 +275,8 @@ export default function BriefingPage() {
         <div className="flex items-center gap-3">
           <Zap className="w-7 h-7 text-yellow-400" />
           <div>
-            <h1 className="text-2xl font-bold">Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}</h1>
-            <p className="text-sm text-gray-500">Here's your Google Ads briefing — {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+            <h1 className="text-2xl font-bold">Briefing</h1>
+            <p className="text-sm text-gray-500">Your Google Ads command center</p>
           </div>
         </div>
         <button onClick={fetchAll} disabled={loading} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">

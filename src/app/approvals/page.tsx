@@ -65,7 +65,7 @@ export default function ApprovalsPage() {
       </div>
 
       <div className="flex gap-2 mb-6">
-        {['pending', 'approved', 'rejected', 'applied', 'expired'].map((tab) => (
+        {['pending', 'approved', 'applied', 'rejected', 'failed', 'expired'].map((tab) => (
           <button key={tab} onClick={() => setFilter(tab)} className={`px-3 py-1.5 text-sm rounded-lg transition-colors capitalize ${filter === tab ? 'bg-orange-600/20 text-orange-400' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
             {tab}
           </button>

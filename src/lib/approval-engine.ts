@@ -77,9 +77,17 @@ export class ApprovalEngine {
 
     logger.info(`Approved: ${id}`);
 
-    // Auto-apply if enabled
+    // Try to auto-apply (push to Google Ads), but don't fail the approval if apply fails
     if (autoApply) {
-      return this.apply(id);
+      try {
+        return await this.apply(id);
+      } catch (applyError) {
+        logger.warn(`Auto-apply failed for ${id}, keeping as approved`, {
+          error: applyError instanceof Error ? applyError.message : String(applyError),
+        });
+        // Return the approved item — don't change status to failed
+        return data;
+      }
     }
 
     return data;

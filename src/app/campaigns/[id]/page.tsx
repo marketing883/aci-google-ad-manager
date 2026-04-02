@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Pencil, Pause, Play, Trash2, Loader2, ChevronDown, ChevronRight, Plus, X, BarChart3, Settings2, Layers } from 'lucide-react';
+import { ArrowLeft, Pencil, Pause, Play, Trash2, Loader2, ChevronDown, ChevronRight, Plus, X, BarChart3, Settings2, Layers, Send, CheckCircle } from 'lucide-react';
 
 // ============================================================
 // Types
@@ -184,6 +184,8 @@ export default function CampaignDetailPage() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ type: string; id: string; name: string } | null>(null);
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [submitResult, setSubmitResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Settings form state
   const [editName, setEditName] = useState('');
@@ -231,6 +233,27 @@ export default function CampaignDetailPage() {
     } else {
       fetchCampaign();
     }
+  }
+
+  async function submitToGoogleAds() {
+    setSubmitLoading(true);
+    setSubmitResult(null);
+    try {
+      const res = await fetch(`/api/campaigns/${id}/submit`, { method: 'POST' });
+      const data = await res.json();
+
+      if (data.error) throw new Error(data.error);
+
+      if (data.qa?.passed) {
+        setSubmitResult({ success: true, message: `QA passed. Submitted to approval queue. Go to Approvals to review and push to Google Ads.` });
+      } else {
+        const issues = (data.qa?.errors || []).map((e: { message: string }) => e.message).join(', ');
+        setSubmitResult({ success: true, message: `Submitted with QA warnings: ${issues}. Review in Approvals.` });
+      }
+    } catch (err) {
+      setSubmitResult({ success: false, message: err instanceof Error ? err.message : 'Submit failed' });
+    }
+    setSubmitLoading(false);
   }
 
   async function saveSettings(e: React.FormEvent) {
@@ -305,8 +328,25 @@ export default function CampaignDetailPage() {
           </button>
           <Link href={`/campaigns/${id}/edit`} className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-sm rounded-lg text-white"><Pencil className="w-4 h-4" /> Edit</Link>
           <button onClick={() => setConfirmDelete({ type: 'campaign', id, name: campaign.name })} className="flex items-center gap-2 px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm rounded-lg"><Trash2 className="w-4 h-4" /> Delete</button>
+          {!campaign.google_campaign_id && (
+            <button onClick={submitToGoogleAds} disabled={submitLoading} className="flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 text-white text-sm rounded-lg font-medium">
+              {submitLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Submit to Google Ads
+            </button>
+          )}
+          {campaign.google_campaign_id && (
+            <span className="flex items-center gap-1.5 px-3 py-2 text-green-400 text-sm"><CheckCircle className="w-4 h-4" /> On Google Ads</span>
+          )}
         </div>
       </div>
+
+      {/* Submit result banner */}
+      {submitResult && (
+        <div className={`mb-4 p-3 rounded-lg text-sm ${submitResult.success ? 'bg-green-900/30 border border-green-800 text-green-300' : 'bg-red-900/30 border border-red-800 text-red-300'}`}>
+          {submitResult.message}
+          {submitResult.success && <Link href="/approvals" className="ml-2 underline">Go to Approvals →</Link>}
+        </div>
+      )}
 
       {/* Quick Stats */}
       <div className="grid grid-cols-6 gap-3 mb-6">

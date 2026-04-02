@@ -82,20 +82,34 @@ export default function ApprovalDetailPage() {
         {/* Diff View */}
         <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h2 className="text-lg font-semibold mb-4">Proposed Changes</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <h3 className="text-sm text-gray-400 mb-2">Before</h3>
-              <pre className="bg-gray-800 rounded-lg p-4 text-sm font-mono text-gray-300 min-h-[200px] overflow-auto whitespace-pre-wrap">
-                {item.previous_state ? JSON.stringify(item.previous_state, null, 2) : 'New entity (no previous state)'}
-              </pre>
+          {/* Human-readable summary for campaign pushes */}
+          {item.action_type === 'push_to_google_ads' && item.payload ? (
+            <div className="bg-gray-800 rounded-lg p-5 space-y-3">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><span className="text-gray-400">Campaign:</span> <span className="text-white font-medium">{item.payload.campaign_name as string}</span></div>
+                <div><span className="text-gray-400">Type:</span> <span className="text-white">{item.payload.campaign_type as string}</span></div>
+                <div><span className="text-gray-400">Budget:</span> <span className="text-white">${((item.payload.budget as number) / 1_000_000).toFixed(2)}/day</span></div>
+                <div><span className="text-gray-400">Ad Groups:</span> <span className="text-white">{item.payload.ad_groups_count as number}</span></div>
+                <div><span className="text-gray-400">Ads:</span> <span className="text-white">{item.payload.ads_count as number}</span></div>
+                <div><span className="text-gray-400">Keywords:</span> <span className="text-white">{item.payload.keywords_count as number}</span></div>
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm text-gray-400 mb-2">After</h3>
-              <pre className="bg-gray-800 rounded-lg p-4 text-sm font-mono text-green-300 min-h-[200px] overflow-auto whitespace-pre-wrap">
-                {JSON.stringify(item.payload, null, 2)}
-              </pre>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <h3 className="text-sm text-gray-400 mb-2">Before</h3>
+                <pre className="bg-gray-800 rounded-lg p-4 text-sm font-mono text-gray-300 min-h-[200px] overflow-auto whitespace-pre-wrap">
+                  {item.previous_state ? JSON.stringify(item.previous_state, null, 2) : 'New entity (no previous state)'}
+                </pre>
+              </div>
+              <div>
+                <h3 className="text-sm text-gray-400 mb-2">After</h3>
+                <pre className="bg-gray-800 rounded-lg p-4 text-sm font-mono text-green-300 min-h-[200px] overflow-auto whitespace-pre-wrap">
+                  {JSON.stringify(item.payload, null, 2)}
+                </pre>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Info + Actions */}

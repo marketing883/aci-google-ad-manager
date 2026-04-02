@@ -314,7 +314,7 @@ export default function CampaignDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Link href="/campaigns" className="p-2 hover:bg-gray-800 rounded-lg"><ArrowLeft className="w-5 h-5 text-gray-400" /></Link>
+          <Link href="/portfolio" className="p-2 hover:bg-gray-800 rounded-lg"><ArrowLeft className="w-5 h-5 text-gray-400" /></Link>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold">{campaign.name}</h1>
@@ -328,7 +328,7 @@ export default function CampaignDetailPage() {
             {campaign.status === 'active' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             {campaign.status === 'active' ? 'Pause' : 'Activate'}
           </button>
-          <Link href={`/campaigns/${id}/edit`} className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-sm rounded-lg text-white"><Pencil className="w-4 h-4" /> Edit</Link>
+          <Link href={`/chat?prefill=${encodeURIComponent(`Edit campaign "${campaign?.name}" — what would you like to change?`)}`} className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-sm rounded-lg text-white"><Pencil className="w-4 h-4" /> Edit in Chat</Link>
           <button onClick={() => setConfirmDelete({ type: 'campaign', id, name: campaign.name })} className="flex items-center gap-2 px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm rounded-lg"><Trash2 className="w-4 h-4" /> Delete</button>
           {!campaign.google_campaign_id && (
             <button onClick={submitToGoogleAds} disabled={submitLoading} className="flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 text-white text-sm rounded-lg font-medium">

@@ -74,7 +74,12 @@ export default function ApprovalDetailPage() {
         </Link>
         <div>
           <h1 className="text-2xl font-bold">{item.action_type.replace(/_/g, ' ')}</h1>
-          <p className="text-sm text-gray-500">{item.entity_type} &bull; {item.agent_name || 'Manual'} &bull; {new Date(item.created_at).toLocaleString()}</p>
+          <p className="text-sm text-gray-500">
+            {item.entity_type} &bull; {item.agent_name || 'Manual'} &bull; {new Date(item.created_at).toLocaleString()}
+            {item.entity_id && item.entity_type === 'campaign' && (
+              <> &bull; <Link href={`/campaigns/${item.entity_id}`} className="text-blue-400 hover:text-blue-300">View campaign</Link></>
+            )}
+          </p>
         </div>
       </div>
 

@@ -137,6 +137,19 @@ export default function SettingsPage() {
             Save Settings
           </button>
         </div>
+
+        {/* Agent Logs link */}
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Agent Logs</h2>
+              <p className="text-sm text-gray-400">View AI agent execution history, token usage, and errors.</p>
+            </div>
+            <Link href="/logs" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm rounded-lg">
+              View Logs
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   );

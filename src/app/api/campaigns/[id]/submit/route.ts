@@ -10,6 +10,16 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
+
+    // Check env vars
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json({
+        error: 'Missing Supabase credentials. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local',
+        has_url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+        has_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      }, { status: 500 });
+    }
+
     const supabase = createAdminClient();
 
     // Fetch campaign

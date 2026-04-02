@@ -242,13 +242,15 @@ export default function CampaignDetailPage() {
       const res = await fetch(`/api/campaigns/${id}/submit`, { method: 'POST' });
       const data = await res.json();
 
-      if (data.error) throw new Error(data.error);
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `HTTP ${res.status}: ${JSON.stringify(data)}`);
+      }
 
       if (data.qa?.passed) {
-        setSubmitResult({ success: true, message: `QA passed. Submitted to approval queue. Go to Approvals to review and push to Google Ads.` });
+        setSubmitResult({ success: true, message: `QA passed. Submitted to approval queue (ID: ${data.approval_id}). Go to Approvals to review and push to Google Ads.` });
       } else {
         const issues = (data.qa?.errors || []).map((e: { message: string }) => e.message).join(', ');
-        setSubmitResult({ success: true, message: `Submitted with QA warnings: ${issues}. Review in Approvals.` });
+        setSubmitResult({ success: true, message: `Submitted with QA issues: ${issues}. Review in Approvals (ID: ${data.approval_id}).` });
       }
     } catch (err) {
       setSubmitResult({ success: false, message: err instanceof Error ? err.message : 'Submit failed' });

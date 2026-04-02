@@ -179,18 +179,17 @@ export default function ChatPage() {
   // Load chat history on mount + handle prefill from URL
   useEffect(() => {
     loadHistory().then(() => {
-      // Handle ?prefill= from portfolio/briefing clicks
+      // Handle ?prefill= from portfolio/briefing/intelligence clicks
+      // searchParams.get() already decodes — don't double-decode
       const prefill = searchParams.get('prefill');
       if (prefill && !prefillHandled.current) {
         prefillHandled.current = true;
-        setInput(decodeURIComponent(prefill));
-        // Auto-send after a short delay to let history load
-        setTimeout(() => {
-          handleSend(decodeURIComponent(prefill));
-        }, 500);
+        setInput(prefill);
+        // Send directly using the prefill text (not stale handleSend closure)
+        sendMessage(prefill);
       }
     });
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll
   useEffect(() => {
@@ -222,9 +221,9 @@ export default function ChatPage() {
     } catch { /* ignore */ }
   }
 
-  async function handleSend(overrideMessage?: string) {
-    const messageText = (overrideMessage || input).trim();
-    if (!messageText || isLoading) return;
+  // Core send function — used by handleSend, prefill, and question answers
+  async function sendMessage(messageText: string) {
+    if (!messageText.trim() || isLoading) return;
 
     // Add user message
     const userMessage: Message = {
@@ -325,6 +324,11 @@ export default function ChatPage() {
     }
 
     setIsLoading(false);
+  }
+
+  // UI send handler — uses input state
+  async function handleSend(overrideMessage?: string) {
+    sendMessage((overrideMessage || input).trim());
   }
 
   return (

@@ -248,11 +248,7 @@ export default function IntelligencePage() {
   async function deleteCompetitor(id: string) {
     if (!confirm('Remove this competitor from tracking?')) return;
     try {
-      await fetch('/api/competitors', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
+      await fetch(`/api/competitors?id=${id}`, { method: 'DELETE' });
       fetchCompetitors();
     } catch { /* ignore */ }
   }

@@ -53,13 +53,13 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE /api/competitors — Remove a competitor
+// DELETE /api/competitors?id=xxx — Remove a competitor
 export async function DELETE(request: NextRequest) {
   try {
-    const { id } = await request.json();
+    const id = request.nextUrl.searchParams.get('id');
 
     if (!id) {
-      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+      return NextResponse.json({ error: 'id query parameter is required' }, { status: 400 });
     }
 
     const supabase = createAdminClient();

@@ -81,7 +81,10 @@ function calculateHealthGrade(campaign: CampaignWithStats): HealthGrade {
     const cpa = stats.cost_micros / stats.conversions;
     const budget = campaign.budget_amount_micros;
 
-    if (cpa <= budget * 0.5) { score += 30; reasons.push('Great CPA — well below daily budget'); }
+    if (budget <= 0) {
+      // Budget is $0 — can't compare CPA to budget
+      score += 15; reasons.push(`Converting at $${(cpa / 1_000_000).toFixed(2)} CPA (budget not set)`);
+    } else if (cpa <= budget * 0.5) { score += 30; reasons.push('Great CPA — well below daily budget'); }
     else if (cpa <= budget) { score += 20; reasons.push('Acceptable CPA'); }
     else if (cpa <= budget * 2) { score += 5; reasons.push('CPA is high relative to budget'); }
     else { score -= 10; reasons.push('CPA exceeds 2x daily budget — losing money per conversion'); }
@@ -213,7 +216,7 @@ function CampaignCard({ campaign, onClick }: { campaign: CampaignWithStats; onCl
         </div>
         <div>
           <p className="text-[10px] text-gray-500">Conv.</p>
-          <p className="text-sm font-semibold">{stats?.conversions || '—'}</p>
+          <p className="text-sm font-semibold">{stats ? stats.conversions : '—'}</p>
         </div>
       </div>
 

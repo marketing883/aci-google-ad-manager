@@ -1098,12 +1098,18 @@ export async function executeTool(
           ctr: totals.impr > 0 ? `${(totals.clicks / totals.impr * 100).toFixed(2)}%` : '0%',
           cpa: totals.conv > 0 ? `$${(totals.spend / totals.conv / 1e6).toFixed(2)}` : '—',
         },
-        campaigns: (camps || []).map((c) => ({
-          name: c.name,
-          spend: '$0', // TODO: per-campaign breakdown
-          conversions: '0',
-          health: c.status === 'active' ? 'Active' : c.status,
-        })),
+        campaigns: (camps || []).map((c: { id: string; name: string; status: string }) => {
+          // Aggregate per-campaign performance
+          const campPerf = (perf || []).filter((p) => p.entity_id === c.id);
+          const campSpend = campPerf.reduce((s, p) => s + (p.cost_micros || 0), 0);
+          const campConv = campPerf.reduce((s, p) => s + (p.conversions || 0), 0);
+          return {
+            name: c.name,
+            spend: `$${(campSpend / 1_000_000).toFixed(2)}`,
+            conversions: campConv.toFixed(1),
+            health: c.status === 'active' ? 'Active' : c.status,
+          };
+        }),
         recommendations: [],
         generatedAt: new Date().toLocaleString(),
       });

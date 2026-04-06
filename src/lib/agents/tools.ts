@@ -55,7 +55,8 @@ export type ToolName =
   | 'get_company_context'
   | 'sync_google_performance'
   | 'push_campaign_to_google'
-  | 'toggle_campaign_status';
+  | 'toggle_campaign_status'
+  | 'check_google_ads_status';
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -483,6 +484,17 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         status: { type: 'string', enum: ['enable', 'pause'], description: 'enable to go live, pause to stop' },
       },
       required: ['campaign_id', 'status'],
+    },
+  },
+  {
+    name: 'check_google_ads_status',
+    description: 'Check the Google Ads connection status and which campaigns are synced to Google. Shows Google campaign IDs, sync status, and whether campaigns are live or paused. Call this when the user asks "what\'s on Google?" or "is my campaign live?"',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        campaign_id: { type: 'string', description: 'Optional — check a specific campaign. If omitted, shows all campaigns.' },
+      },
+      required: [],
     },
   },
 ];
@@ -1476,6 +1488,70 @@ export async function executeTool(
       }
     }
 
+    // ---- CHECK GOOGLE ADS STATUS ----
+    case 'check_google_ads_status': {
+      // Check connection
+      const { data: account } = await supabase
+        .from('google_ads_accounts')
+        .select('customer_id, is_active, last_synced_at, account_name')
+        .eq('is_active', true)
+        .single();
+
+      const lines: string[] = ['## Google Ads Status\n'];
+
+      if (!account || account.customer_id === 'pending') {
+        lines.push('**Connection:** Not connected. Go to Settings to connect Google Ads.');
+        return { result: lines.join('\n') };
+      }
+
+      lines.push(`**Connection:** Connected (Customer ID: ${account.customer_id})`);
+      lines.push(`**Last Synced:** ${account.last_synced_at ? new Date(account.last_synced_at).toLocaleString() : 'Never'}\n`);
+
+      // Get campaigns
+      let query = supabase
+        .from('campaigns')
+        .select('id, name, status, google_campaign_id, last_synced_at, budget_amount_micros')
+        .neq('status', 'removed')
+        .order('created_at', { ascending: false });
+
+      if (input.campaign_id) {
+        query = query.eq('id', input.campaign_id as string);
+      }
+
+      const { data: campaigns } = await query;
+
+      if (!campaigns?.length) {
+        lines.push('No campaigns found.');
+        return { result: lines.join('\n') };
+      }
+
+      // Get ad group counts
+      const campaignIds = campaigns.map((c: { id: string }) => c.id);
+      const { data: adGroupCounts } = await supabase
+        .from('ad_groups')
+        .select('campaign_id')
+        .in('campaign_id', campaignIds)
+        .neq('status', 'removed');
+
+      const agCountMap: Record<string, number> = {};
+      for (const ag of adGroupCounts || []) {
+        agCountMap[ag.campaign_id] = (agCountMap[ag.campaign_id] || 0) + 1;
+      }
+
+      lines.push('| Campaign | Local Status | Google ID | Ad Groups | Budget/day | Synced |');
+      lines.push('|----------|-------------|-----------|-----------|------------|--------|');
+
+      for (const c of campaigns) {
+        const googleId = c.google_campaign_id || 'Not pushed';
+        const synced = c.last_synced_at ? new Date(c.last_synced_at).toLocaleDateString() : 'Never';
+        const budget = `$${(c.budget_amount_micros / 1_000_000).toFixed(0)}`;
+        const agCount = agCountMap[c.id] || 0;
+        lines.push(`| ${c.name} | ${c.status} | ${googleId} | ${agCount} | ${budget} | ${synced} |`);
+      }
+
+      return { result: lines.join('\n') };
+    }
+
     // ---- TOGGLE CAMPAIGN STATUS ----
     case 'toggle_campaign_status': {
       const campaignId = input.campaign_id as string;
@@ -1661,7 +1737,7 @@ export type PipelineStage = 'gather' | 'research' | 'strategy' | 'build' | 'pres
 // Tool groups for intent-based selection
 export const TOOL_GROUPS: Record<string, ToolName[]> = {
   campaign_create: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'get_company_context', 'push_campaign_to_google'],
-  campaign_read: ['get_campaign_performance', 'validate_campaign'],
+  campaign_read: ['get_campaign_performance', 'validate_campaign', 'check_google_ads_status'],
   campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign', 'push_campaign_to_google', 'toggle_campaign_status'],
   research: ['research_keywords', 'analyze_competitors', 'get_company_context'],
   analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities', 'sync_google_performance'],

@@ -445,3 +445,86 @@ async function handlePushFullCampaign(
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
+
+/**
+ * Re-push ads for an existing campaign — creates new ads on Google
+ * for ad groups that are already synced. Used when ad URLs or copy
+ * have been updated locally and need to go live.
+ */
+export async function rePushAds(campaignId: string): Promise<{
+  success: boolean;
+  ads_pushed: number;
+  errors: string[];
+}> {
+  const client = await createGoogleAdsClient();
+  if (!client) return { success: false, ads_pushed: 0, errors: ['No Google Ads client'] };
+
+  const supabase = createAdminClient();
+  const errors: string[] = [];
+  let adsPushed = 0;
+
+  // Get ad groups that are already on Google
+  const { data: adGroups } = await supabase
+    .from('ad_groups')
+    .select('id, name, google_ad_group_id')
+    .eq('campaign_id', campaignId)
+    .not('google_ad_group_id', 'is', null)
+    .neq('status', 'removed');
+
+  if (!adGroups?.length) {
+    return { success: false, ads_pushed: 0, errors: ['No synced ad groups found'] };
+  }
+
+  // Get the customer ID for resource name construction
+  const { data: campaign } = await supabase
+    .from('campaigns')
+    .select('google_campaign_id')
+    .eq('id', campaignId)
+    .single();
+
+  const { data: account } = await supabase
+    .from('google_ads_accounts')
+    .select('customer_id')
+    .eq('is_active', true)
+    .single();
+
+  if (!account?.customer_id) {
+    return { success: false, ads_pushed: 0, errors: ['No active Google Ads account'] };
+  }
+
+  for (const ag of adGroups) {
+    const agResourceName = `customers/${account.customer_id}/adGroups/${ag.google_ad_group_id}`;
+
+    // Get local ads that haven't been synced yet
+    const { data: ads } = await supabase
+      .from('ads')
+      .select('*')
+      .eq('ad_group_id', ag.id)
+      .neq('status', 'removed');
+
+    for (const ad of ads || []) {
+      try {
+        await client.createResponsiveSearchAd({
+          ad_group_resource_name: agResourceName,
+          headlines: ad.headlines,
+          descriptions: ad.descriptions,
+          final_urls: ad.final_urls,
+          path1: ad.path1,
+          path2: ad.path2,
+        });
+        await supabase.from('ads').update({
+          status: 'active',
+          last_synced_at: new Date().toISOString(),
+        }).eq('id', ad.id);
+        adsPushed++;
+        logger.info(`Pushed ad ${ad.id} to ${ag.name}`);
+      } catch (err) {
+        const msg = `Ad ${ad.id} in "${ag.name}": ${(err as Error).message}`;
+        errors.push(msg);
+        logger.warn(`Failed to push ad`, { ad_id: ad.id, error: (err as Error).message });
+      }
+    }
+  }
+
+  return { success: errors.length === 0, ads_pushed: adsPushed, errors };
+}

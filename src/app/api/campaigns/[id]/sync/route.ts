@@ -1,22 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { syncPerformanceData } from '@/lib/google-ads/sync';
+import { syncPerformanceData, rePushAds } from '@/lib/google-ads/sync';
 
-// POST /api/campaigns/[id]/sync — Manual sync trigger
+// POST /api/campaigns/[id]/sync — Sync or re-push
+// ?action=push_ads — re-push ads to Google Ads
+// default — pull performance data
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
+    const action = request.nextUrl.searchParams.get('action');
 
-    // For now, sync all campaigns (can be scoped later)
+    if (action === 'push_ads') {
+      const result = await rePushAds(id);
+      return NextResponse.json(result);
+    }
+
+    // Default: sync performance data
     const result = await syncPerformanceData(30);
-
-    return NextResponse.json({
-      success: true,
-      campaign_id: id,
-      ...result,
-    });
+    return NextResponse.json({ success: true, campaign_id: id, ...result });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Sync failed' },

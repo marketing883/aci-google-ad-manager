@@ -203,6 +203,11 @@ export async function pushChangeToGoogle(
 
   switch (actionType) {
     case 'create_campaign':
+      // If payload only has campaign_id, push the full campaign from DB
+      // (this is how the approval engine submits it)
+      if (payload.campaign_id && !payload.name) {
+        return handlePushFullCampaign(client, payload);
+      }
       return handleCreateCampaign(client, payload);
     case 'update_campaign_status':
       return handleUpdateCampaignStatus(client, payload);

@@ -4,7 +4,7 @@ import { createLogger } from '../utils/logger';
 import { comprehensiveKeywordResearch, getCompetitors, getRelatedKeywords, type ComprehensiveKeywordData } from '../dataforseo';
 import { searchImages } from '../unsplash';
 import { createGoogleAdsClient } from '../google-ads/client';
-import { syncPerformanceData } from '../google-ads/sync';
+import { syncPerformanceData, rePushAds } from '../google-ads/sync';
 import { qaSentinel } from './qa-sentinel';
 
 const logger = createLogger('Tools');
@@ -53,7 +53,8 @@ export type ToolName =
   | 'schedule_report'
   | 'manage_report_schedules'
   | 'get_company_context'
-  | 'sync_google_performance';
+  | 'sync_google_performance'
+  | 'push_campaign_to_google';
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -457,6 +458,18 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         days: { type: 'number', description: 'Number of days of data to sync (default 7, max 90)' },
       },
       required: [],
+    },
+  },
+  {
+    name: 'push_campaign_to_google',
+    description: 'Push a local campaign to Google Ads. Use "full_push" to push the entire campaign (budget, ad groups, keywords, ads) for the first time. Use "push_ads_only" to re-push ads when URLs or copy have been updated. Campaigns are created as PAUSED on Google.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        campaign_id: { type: 'string', description: 'UUID of the campaign to push' },
+        action: { type: 'string', enum: ['full_push', 'push_ads_only'], description: 'full_push for first-time push, push_ads_only to update ads on existing campaign' },
+      },
+      required: ['campaign_id', 'action'],
     },
   },
 ];
@@ -1450,6 +1463,59 @@ export async function executeTool(
       }
     }
 
+    // ---- PUSH CAMPAIGN TO GOOGLE ----
+    case 'push_campaign_to_google': {
+      const campaignId = input.campaign_id as string;
+      const action = input.action as string;
+
+      if (!campaignId) return { result: 'campaign_id is required.' };
+
+      // Verify campaign exists
+      const { data: camp } = await supabase
+        .from('campaigns')
+        .select('id, name, google_campaign_id, status')
+        .eq('id', campaignId)
+        .single();
+
+      if (!camp) return { result: `Campaign ${campaignId} not found.` };
+
+      try {
+        if (action === 'push_ads_only') {
+          if (!camp.google_campaign_id) {
+            return { result: `Campaign "${camp.name}" hasn't been pushed to Google yet. Use action "full_push" first.` };
+          }
+          const result = await rePushAds(campaignId);
+          return {
+            result: result.success
+              ? `Re-pushed ${result.ads_pushed} ads for "${camp.name}" to Google Ads.`
+              : `Pushed ${result.ads_pushed} ads with ${result.errors.length} errors: ${result.errors.slice(0, 3).join('; ')}`,
+            data: result,
+          };
+        } else {
+          // Full push
+          if (camp.google_campaign_id) {
+            return { result: `Campaign "${camp.name}" is already on Google Ads (ID: ${camp.google_campaign_id}). Use "push_ads_only" to update ads, or create a new campaign.` };
+          }
+
+          const { pushChangeToGoogle } = await import('../google-ads/sync');
+          const result = await pushChangeToGoogle('create_campaign', { campaign_id: campaignId });
+
+          if (result.success) {
+            // Refresh campaign data
+            const { data: updated } = await supabase.from('campaigns').select('google_campaign_id').eq('id', campaignId).single();
+            return {
+              result: `Campaign "${camp.name}" pushed to Google Ads! Google Campaign ID: ${updated?.google_campaign_id || 'assigned'}. Status: PAUSED (use toggle_campaign_status to enable).`,
+              data: result,
+            };
+          } else {
+            return { result: `Push failed: ${result.error}` };
+          }
+        }
+      } catch (e) {
+        return { result: `Push failed: ${(e as Error).message}. Check Google Ads connection.` };
+      }
+    }
+
     // ---- COMPANY CONTEXT ----
     case 'get_company_context': {
       const { data: setting } = await supabase
@@ -1534,9 +1600,9 @@ export type PipelineStage = 'gather' | 'research' | 'strategy' | 'build' | 'pres
 
 // Tool groups for intent-based selection
 export const TOOL_GROUPS: Record<string, ToolName[]> = {
-  campaign_create: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'get_company_context'],
+  campaign_create: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'get_company_context', 'push_campaign_to_google'],
   campaign_read: ['get_campaign_performance', 'validate_campaign'],
-  campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign'],
+  campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign', 'push_campaign_to_google'],
   research: ['research_keywords', 'analyze_competitors', 'get_company_context'],
   analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities', 'sync_google_performance'],
   reports: ['send_report', 'schedule_report', 'manage_report_schedules'],

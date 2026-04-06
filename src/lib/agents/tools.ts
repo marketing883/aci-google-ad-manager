@@ -57,7 +57,8 @@ export type ToolName =
   | 'push_campaign_to_google'
   | 'toggle_campaign_status'
   | 'check_google_ads_status'
-  | 'import_google_campaigns';
+  | 'import_google_campaigns'
+  | 'get_google_ads_details';
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -505,6 +506,20 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       type: 'object' as const,
       properties: {},
       required: [],
+    },
+  },
+  {
+    name: 'get_google_ads_details',
+    description: 'Get detailed live performance data from Google Ads at the ad group or keyword level. Use for granular analysis — which ad groups are performing best, which keywords have high quality scores, which keywords are wasting spend.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        campaign_id: { type: 'string', description: 'UUID of the local campaign' },
+        level: { type: 'string', enum: ['ad_groups', 'keywords'], description: 'ad_groups for ad group metrics, keywords for keyword metrics (requires a specific ad group)' },
+        ad_group_id: { type: 'string', description: 'UUID of the ad group (required when level is "keywords")' },
+        days: { type: 'number', description: 'Number of days to look back (default 30)' },
+      },
+      required: ['campaign_id', 'level'],
     },
   },
 ];
@@ -1498,6 +1513,101 @@ export async function executeTool(
       }
     }
 
+    // ---- GET GOOGLE ADS DETAILS ----
+    case 'get_google_ads_details': {
+      const campaignId = input.campaign_id as string;
+      const level = input.level as string;
+      const days = Math.min(Math.max((input.days as number) || 30, 1), 90);
+
+      if (!campaignId) return { result: 'campaign_id is required.' };
+
+      const { data: camp } = await supabase
+        .from('campaigns')
+        .select('id, name, google_campaign_id')
+        .eq('id', campaignId)
+        .single();
+
+      if (!camp) return { result: `Campaign ${campaignId} not found.` };
+      if (!camp.google_campaign_id) return { result: `Campaign "${camp.name}" is not on Google Ads. Push it first.` };
+
+      try {
+        const client = await createGoogleAdsClient();
+        if (!client) return { result: 'No Google Ads client. Check connection.' };
+
+        const dateTo = new Date().toISOString().split('T')[0];
+        const dateFrom = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+        if (level === 'ad_groups') {
+          const rows = await client.getAdGroupPerformance(camp.google_campaign_id, dateFrom, dateTo);
+          if (rows.length === 0) return { result: `No ad group performance data for "${camp.name}" in the last ${days} days.` };
+
+          // Get ad group names from local DB
+          const { data: adGroups } = await supabase
+            .from('ad_groups')
+            .select('google_ad_group_id, name')
+            .eq('campaign_id', campaignId);
+          const nameMap: Record<string, string> = {};
+          for (const ag of adGroups || []) {
+            if (ag.google_ad_group_id) nameMap[ag.google_ad_group_id] = ag.name;
+          }
+
+          // Aggregate by ad group
+          const agMap: Record<string, { name: string; impressions: number; clicks: number; cost: number; conversions: number }> = {};
+          for (const r of rows) {
+            const id = r.campaign_id || 'unknown'; // actually ad_group_id in the mapped result
+            if (!agMap[id]) agMap[id] = { name: nameMap[id] || id, impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+            agMap[id].impressions += parseInt(r.metrics.impressions) || 0;
+            agMap[id].clicks += parseInt(r.metrics.clicks) || 0;
+            agMap[id].cost += parseInt(r.metrics.cost_micros) || 0;
+            agMap[id].conversions += parseFloat(r.metrics.conversions) || 0;
+          }
+
+          const lines = [`## Ad Group Performance — "${camp.name}" (last ${days} days)\n`];
+          lines.push('| Ad Group | Impressions | Clicks | CTR | Spend | Conversions | CPA |');
+          lines.push('|----------|------------|--------|-----|-------|-------------|-----|');
+          for (const [, ag] of Object.entries(agMap)) {
+            const ctr = ag.impressions > 0 ? ((ag.clicks / ag.impressions) * 100).toFixed(1) + '%' : '0%';
+            const spend = `$${(ag.cost / 1_000_000).toFixed(2)}`;
+            const cpa = ag.conversions > 0 ? `$${(ag.cost / ag.conversions / 1_000_000).toFixed(2)}` : '-';
+            lines.push(`| ${ag.name} | ${ag.impressions.toLocaleString()} | ${ag.clicks} | ${ctr} | ${spend} | ${ag.conversions} | ${cpa} |`);
+          }
+          return { result: lines.join('\n') };
+
+        } else if (level === 'keywords') {
+          const adGroupId = input.ad_group_id as string;
+          if (!adGroupId) return { result: 'ad_group_id is required for keyword-level details.' };
+
+          const { data: ag } = await supabase
+            .from('ad_groups')
+            .select('google_ad_group_id, name')
+            .eq('id', adGroupId)
+            .single();
+
+          if (!ag?.google_ad_group_id) return { result: 'Ad group not found or not synced to Google.' };
+
+          const rows = await client.getKeywordPerformance(ag.google_ad_group_id, dateFrom, dateTo);
+          if (rows.length === 0) return { result: `No keyword performance data for "${ag.name}" in the last ${days} days.` };
+
+          const lines = [`## Keyword Performance — "${ag.name}" (last ${days} days)\n`];
+          lines.push('| Keyword ID | Impressions | Clicks | CTR | Spend | Conversions |');
+          lines.push('|-----------|------------|--------|-----|-------|-------------|');
+          for (const r of rows) {
+            const imp = parseInt(r.metrics.impressions) || 0;
+            const clicks = parseInt(r.metrics.clicks) || 0;
+            const ctr = imp > 0 ? ((clicks / imp) * 100).toFixed(1) + '%' : '0%';
+            const spend = `$${(parseInt(r.metrics.cost_micros) / 1_000_000).toFixed(2)}`;
+            const conv = parseFloat(r.metrics.conversions) || 0;
+            lines.push(`| ${r.campaign_id} | ${imp.toLocaleString()} | ${clicks} | ${ctr} | ${spend} | ${conv} |`);
+          }
+          return { result: lines.join('\n') };
+        }
+
+        return { result: 'Invalid level. Use "ad_groups" or "keywords".' };
+      } catch (e) {
+        return { result: `Failed to get details: ${(e as Error).message}` };
+      }
+    }
+
     // ---- IMPORT GOOGLE CAMPAIGNS ----
     case 'import_google_campaigns': {
       try {
@@ -1763,7 +1873,7 @@ export const TOOL_GROUPS: Record<string, ToolName[]> = {
   campaign_read: ['get_campaign_performance', 'validate_campaign', 'check_google_ads_status', 'import_google_campaigns'],
   campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign', 'push_campaign_to_google', 'toggle_campaign_status'],
   research: ['research_keywords', 'analyze_competitors', 'get_company_context'],
-  analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities', 'sync_google_performance'],
+  analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities', 'sync_google_performance', 'get_google_ads_details'],
   reports: ['send_report', 'schedule_report', 'manage_report_schedules'],
   interaction: ['ask_user_questions'],
 };

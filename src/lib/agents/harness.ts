@@ -297,6 +297,12 @@ Always include "interaction". If unclear, include multiple groups.
 "research keywords" → ["research","interaction"]
 "send report" → ["reports","interaction"]
 "optimize" → ["analytics","campaign_edit","interaction"]
+"push to google" → ["campaign_create","campaign_edit","interaction"]
+"go live/enable/pause" → ["campaign_edit","interaction"]
+"sync/pull performance" → ["analytics","campaign_read","interaction"]
+"what's on google/status" → ["campaign_read","interaction"]
+"import campaigns" → ["campaign_read","interaction"]
+"keyword/ad group performance" → ["analytics","campaign_read","interaction"]
 unclear → ["analytics","campaign_read","interaction"]`,
         messages: [{ role: 'user', content: message }],
       });

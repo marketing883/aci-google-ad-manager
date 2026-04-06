@@ -233,7 +233,7 @@ export class GoogleAdsClient {
       campaignBudget: budgetResults[0].resource_name,
       advertisingChannelType: campaign.channel_type,
       status: 'PAUSED', // Always start paused
-      containsEuPoliticalAdvertising: false, // Required in v21+
+      containsEuPoliticalAdvertising: 'DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING',
     };
 
     // Bidding strategy — Google Ads API needs strategy-specific objects, not just the enum

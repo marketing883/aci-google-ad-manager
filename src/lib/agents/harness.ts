@@ -74,56 +74,125 @@ RULES:
 
 Respond with a brief summary of what you'll do and the assumptions you're making, then move on.`,
 
-  research: `You are a Google Ads research analyst. Use your tools to research keywords and analyze competitors.
+  research: `You are a Google Ads research analyst performing comprehensive keyword and competitive research.
 ${FORMAT_RULES}
-You have the following tools available:
-- research_keywords: Research seed keywords for volume, competition, CPC
-- analyze_competitors: Analyze competitor SERP presence
+## Research Strategy
 
-Based on the business description and target audience, generate relevant seed keywords and research them. Also identify and analyze key competitors in the space.
+You MUST research across ALL 5 keyword categories:
+1. **Core product terms** — what the product/service IS (e.g., "data lakehouse", "dynamics 365 consulting")
+2. **Category terms** — the broader market category (e.g., "cloud data platform", "ERP implementation")
+3. **Problem/solution terms** — what buyers search when they have a problem (e.g., "data warehouse too slow", "migrate from legacy ERP")
+4. **Comparison terms** — what buyers search when evaluating (e.g., "databricks vs snowflake", "best data platform 2024")
+5. **Competitor brand terms** — competitor names as keywords (e.g., "snowflake alternative", "redshift pricing")
 
-Be thorough but efficient. Research 3-5 seed keyword groups.
+## Steps
 
-After research, present findings in tables:
-- Keywords table: Keyword | Volume | Competition | CPC
-- Competitors table: Domain | Position | Description`,
+1. Call \`research_keywords\` with 3-5 seed keywords covering categories 1-3 above
+2. Call \`analyze_competitors\` with the same seed keywords — this will identify competitors and generate conquest keyword suggestions
+3. Review the conquest keywords returned by analyze_competitors — these are ready to use in the strategy stage
 
-  strategy: `You are a senior Google Ads strategist. Based on the research data provided, synthesize a campaign strategy.
+## What to Present
+
+After research, present ALL findings including:
+- **Top keywords by volume** with CPC and competition level
+- **Competitor names** identified from SERP with their brand names
+- **Conquest keywords** generated from competitor analysis
+- **People Also Ask** questions (use for ad copy and long-tail keywords)
+- **Google Ads bid estimates** (use for budget planning)
+
+Do NOT summarize or filter heavily — the strategy stage needs this data to make decisions.`,
+
+  strategy: `You are a senior Google Ads strategist. Synthesize the research into a high-performance campaign structure.
 ${FORMAT_RULES}
-Present your strategy using this structure:
+## Required Ad Group Structure
 
-**Campaign Overview** (table: Field | Value)
-- Campaign type, bidding strategy, daily budget, target locations
+You MUST create at least 4 ad groups covering these themes:
 
-**Ad Group Plan** (table: Ad Group | Theme | Keywords Count | Target CPA)
+1. **Core Product** — direct product/service keywords (highest intent, highest bids)
+2. **Category** — broader category terms (moderate intent, moderate bids)
+3. **Competitor/Conquest** — competitor brand name keywords (REQUIRED if competitors were found in research). Use lower bids (50-70% of core CPC). These capture users searching for competitors.
+4. **Long-tail/FAQ** — question-based and specific queries from People Also Ask. Lower bids, broader reach.
 
-**Keyword Strategy** (brief bullet points)
+Add more groups if the research supports it (e.g., separate "Migration" group, "Pricing/Comparison" group).
 
-**Negative Keywords** (comma-separated list)
+## Match Type Strategy (MUST follow)
 
-**Budget Rationale** (1-2 sentences)
+| Keyword Intent | Match Type Distribution |
+|---------------|----------------------|
+| High-intent (buy, demo, pricing, implementation) | 50% Exact, 30% Phrase, 20% Broad |
+| Medium-intent (comparison, alternative, vs) | 40% Exact, 40% Phrase, 20% Broad |
+| Exploratory (what is, how to, best) | 20% Phrase, 80% Broad |
+| Conquest (competitor names) | 60% Exact, 40% Phrase (control spend) |
 
-The user will confirm or request changes before you build.`,
+Each ad group should have **15-25 keywords** with the match type mix above.
 
-  build: `You are building a Google Ads campaign. Use the tools to create the campaign structure in the database.
+## Negative Keywords (MUST include both levels)
+
+**Campaign-level negatives** (apply to ALL ad groups):
+- Jobs/careers: "jobs", "careers", "hiring", "salary", "interview"
+- Free/DIY: "free", "open source", "tutorial", "course", "training", "certification"
+- Irrelevant: "reddit", "github", "stackoverflow", "wiki"
+
+**Per-group negatives** (prevent overlap between groups):
+- Core group: add competitor brand names as negatives (handled by Conquest group)
+- Category group: add core product name as negative (handled by Core group)
+- Conquest group: add generic terms as negatives (only competitor queries)
+
+## Landing Page Matching
+
+Each ad group MUST have a landing page rationale:
+- Core/Category → main product or service page
+- Conquest → comparison or "alternative to" page (if available), otherwise main product page
+- Long-tail/FAQ → blog, resources, or relevant content page
+
+## Present Your Strategy As:
+
+**Campaign Overview** (table: Field | Value — type, bidding, budget, locations)
+
+**Ad Group Plan:**
+| Ad Group | Theme | Keywords (count) | Match Types | Est. CPC Range | Landing Page |
+|----------|-------|-----------------|-------------|----------------|--------------|
+
+**Campaign-Level Negative Keywords** (list)
+
+**Per-Group Negative Keywords** (table: Ad Group | Negatives)
+
+**Budget Allocation** (how budget should distribute across groups)`,
+
+  build: `You are building a Google Ads campaign in the database. Follow the approved strategy EXACTLY.
 ${FORMAT_RULES}
-Follow this order:
-1. create_campaign — with the agreed strategy parameters
-2. create_ad_group — for each theme, with relevant keywords
-3. create_ad — for each ad group, with compelling headlines (≤30 chars!) and descriptions (≤90 chars!)
-4. build_tracking_urls — for each landing page
+## Build Order
 
-CRITICAL AD COPY RULES:
-- Headlines: MAXIMUM 30 characters (count carefully!)
-- Descriptions: MAXIMUM 90 characters (count carefully!)
-- Count spaces as characters
-- No duplicates across ads
-- Include keywords in headlines
-- Include strong CTAs
+1. \`create_campaign\` — with the strategy parameters (budget, bidding, targeting)
+2. \`create_ad_group\` — for EACH theme in the strategy. Include:
+   - 15-25 keywords per group with the match type distribution from the strategy
+   - 3-5 negative keywords per group to prevent overlap with other groups
+3. \`create_ad\` — create 2 ads per ad group (Google needs at least 2 for rotation/testing)
+4. \`build_tracking_urls\` — distinct URL per ad group (match to strategy's landing page plan)
 
-After building, present a summary table:
-| Component | Count | Details |
-Then list each ad group with its keywords and ad copy.`,
+## Keyword Rules
+
+- Follow the match type distribution from the strategy (e.g., 50% Exact, 30% Phrase, 20% Broad)
+- For each keyword at Exact match, include the same keyword at Phrase match for broader reach
+- Conquest ad group: ONLY competitor brand keywords, not generic terms
+
+## Ad Copy Rules
+
+- Headlines: MAXIMUM 30 characters (count spaces!)
+- Descriptions: MAXIMUM 90 characters (count spaces!)
+- No duplicate headlines or descriptions across ads
+- Each ad must include at least one keyword in the headlines
+- Include a strong CTA in at least one headline and one description
+- **Conquest group ads:** Use patterns like "Better Than {Competitor}", "{Competitor} Alternative", "Switch from {Competitor}" — but do NOT use competitor trademarks in display URLs
+- **Core group ads:** Emphasize unique value proposition and differentiators
+- **Category group ads:** Emphasize category leadership and broad benefits
+- **Long-tail/FAQ group ads:** Address the specific question or pain point
+
+## After Building
+
+Present a summary:
+| Ad Group | Keywords | Match Types | Ads | Landing Page |
+Then list each ad group with all its keywords, match types, negative keywords, and ad copy.`,
 
   present: `You have finished building the campaign. Use validate_campaign to run QA checks, then present a summary.
 ${FORMAT_RULES}
@@ -220,8 +289,12 @@ unclear → ["analytics","campaign_read","interaction"]`,
     return ['analytics', 'campaign_read', 'campaign_edit', 'interaction'];
   }
 
-  /** Layer 2: Summarize tool result — no raw JSON dumps in context */
+  /** Layer 2: Summarize tool result — no raw JSON dumps, but preserve research data */
   private summarizeResult(tool: string, result: string, data: unknown): string {
+    // Research tools return structured markdown — pass through as-is
+    if (tool === 'research_keywords' || tool === 'analyze_competitors') {
+      return result;
+    }
     if (!data) return result;
     const d = data as Record<string, unknown>;
     const idKey = Object.keys(d).find((k) => k.endsWith('_id'));
@@ -501,6 +574,11 @@ unclear → ["analytics","campaign_read","interaction"]`,
           }
 
           yield { type: 'tool_done', tool: toolName, summary: result };
+
+          // Capture structured research data for downstream stages
+          if (stage === 'research' && (toolName === 'research_keywords' || toolName === 'analyze_competitors')) {
+            ctx.researchData += '\n' + result;
+          }
 
           // Layer 2: Summarize result — don't dump raw JSON into context
           const toolResultContent = this.summarizeResult(toolName, result, data);

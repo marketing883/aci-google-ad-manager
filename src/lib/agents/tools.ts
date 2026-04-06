@@ -1,12 +1,28 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { createAdminClient } from '../supabase-server';
 import { createLogger } from '../utils/logger';
-import { comprehensiveKeywordResearch, getCompetitors, getRelatedKeywords } from '../dataforseo';
+import { comprehensiveKeywordResearch, getCompetitors, getRelatedKeywords, type ComprehensiveKeywordData } from '../dataforseo';
 import { searchImages } from '../unsplash';
 import { createGoogleAdsClient } from '../google-ads/client';
 import { qaSentinel } from './qa-sentinel';
 
 const logger = createLogger('Tools');
+
+/** Extract brand name from domain + SERP title */
+function extractBrandName(domain: string, title: string): string {
+  // Common patterns: snowflake.com → Snowflake, aws.amazon.com → AWS
+  const domainParts = domain.replace(/^www\./, '').split('.');
+  const base = domainParts[0];
+
+  // If title starts with a recognizable brand, use that
+  const titleFirstWord = title.split(/[\s\-–|:]/)[0].trim();
+  if (titleFirstWord.length >= 2 && titleFirstWord.length <= 30) {
+    return titleFirstWord;
+  }
+
+  // Capitalize domain base
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
 
 // ============================================================
 // Tool Definitions — input_schema for Anthropic tool_use API
@@ -444,7 +460,7 @@ export async function executeTool(
 
       logger.info('Researching keywords', { count: keywords.length });
 
-      const results = [];
+      const results: ComprehensiveKeywordData[] = [];
       const errors: string[] = [];
       for (const kw of keywords.slice(0, 5)) {
         try {
@@ -457,8 +473,8 @@ export async function executeTool(
         }
       }
 
-      // Also try Google Ads Keyword Planner
-      let googleKeywords: unknown[] = [];
+      // Also try Google Ads Keyword Planner for bid estimates
+      let googleKeywords: Array<{ text: string; avg_monthly_searches: number; competition: string; low_top_of_page_bid_micros: number; high_top_of_page_bid_micros: number }> = [];
       let googleError = '';
       try {
         const client = await createGoogleAdsClient();
@@ -481,20 +497,76 @@ export async function executeTool(
         });
       } catch { /* non-critical cache write */ }
 
-      const totalKeywords = results.reduce((sum, r) => sum + (r.related?.length || 0), 0);
-      let summary = `Found ${totalKeywords} related keywords across ${results.length} seed terms. Google Ads Planner returned ${googleKeywords.length} additional ideas.`;
+      // Build structured markdown summary for the AI
+      const lines: string[] = ['## Keyword Research Results\n'];
+
+      for (const r of results) {
+        const kd = r.keyword;
+        const vol = kd ? kd.search_volume.toLocaleString() : 'N/A';
+        const cpc = kd ? `$${kd.cpc.toFixed(2)}` : 'N/A';
+        const comp = kd ? kd.competition_level : 'N/A';
+        lines.push(`### Seed: "${kd?.keyword || 'unknown'}" (volume: ${vol} | CPC: ${cpc} | competition: ${comp})`);
+
+        // Top related keywords (sorted by volume)
+        const sorted = [...r.related].sort((a, b) => b.search_volume - a.search_volume).slice(0, 15);
+        if (sorted.length > 0) {
+          lines.push('| Keyword | Volume | CPC | Competition |');
+          lines.push('|---------|--------|-----|-------------|');
+          for (const rk of sorted) {
+            lines.push(`| ${rk.keyword} | ${rk.search_volume.toLocaleString()} | $${rk.cpc.toFixed(2)} | ${rk.competition_level} |`);
+          }
+        }
+
+        // Competitors from SERP
+        if (r.competitors.length > 0) {
+          lines.push('\n**SERP Competitors:**');
+          lines.push('| Position | Domain | Title |');
+          lines.push('|----------|--------|-------|');
+          for (const c of r.competitors.slice(0, 5)) {
+            lines.push(`| ${c.position} | ${c.domain} | ${c.title} |`);
+          }
+        }
+
+        // People Also Ask
+        if (r.questions.length > 0) {
+          lines.push('\n**People Also Ask:**');
+          for (const q of r.questions.slice(0, 5)) {
+            lines.push(`- "${q}"`);
+          }
+        }
+        lines.push('');
+      }
+
+      // Google Ads bid estimates
+      if (googleKeywords.length > 0) {
+        lines.push('### Google Ads Bid Estimates');
+        lines.push('| Keyword | Avg Volume | Competition | Low Bid | High Bid |');
+        lines.push('|---------|-----------|-------------|---------|----------|');
+        const topGoogle = googleKeywords
+          .filter((g) => g.avg_monthly_searches > 0)
+          .sort((a, b) => b.avg_monthly_searches - a.avg_monthly_searches)
+          .slice(0, 15);
+        for (const g of topGoogle) {
+          const lowBid = g.low_top_of_page_bid_micros ? `$${(g.low_top_of_page_bid_micros / 1_000_000).toFixed(2)}` : 'N/A';
+          const highBid = g.high_top_of_page_bid_micros ? `$${(g.high_top_of_page_bid_micros / 1_000_000).toFixed(2)}` : 'N/A';
+          lines.push(`| ${g.text} | ${g.avg_monthly_searches.toLocaleString()} | ${g.competition} | ${lowBid} | ${highBid} |`);
+        }
+        lines.push('');
+      }
 
       if (errors.length > 0) {
-        summary += `\n\nDataForSEO errors (${errors.length}): ${errors.join('; ')}`;
+        lines.push(`\n**Errors:** ${errors.join('; ')}`);
       }
       if (googleError) {
-        summary += `\nGoogle Ads Planner: ${googleError}`;
-      }
-      if (totalKeywords === 0 && googleKeywords.length === 0) {
-        summary += '\n\nNo keyword data returned. Check DataForSEO credentials (DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD) and Google Ads API access level.';
+        lines.push(`**Google Ads Planner:** ${googleError}`);
       }
 
-      return { result: summary, data: { dataforseo: results, google_ads: googleKeywords, errors } };
+      const totalKeywords = results.reduce((sum, r) => sum + (r.related?.length || 0), 0);
+      if (totalKeywords === 0 && googleKeywords.length === 0) {
+        lines.push('\nNo keyword data returned. Check DataForSEO credentials and Google Ads API access level.');
+      }
+
+      return { result: lines.join('\n'), data: { dataforseo: results, google_ads: googleKeywords, errors } };
     }
 
     // ---- ANALYZE COMPETITORS ----
@@ -514,26 +586,74 @@ export async function executeTool(
         }
       }
 
-      // Store competitor data
-      const uniqueDomains = new Set<string>();
+      // Extract unique competitors with brand names and ranking keywords
+      const competitorMap = new Map<string, { domain: string; brandName: string; ranksFor: string[]; titles: string[] }>();
       for (const result of competitorData) {
         for (const comp of result.competitors) {
-          if (comp.domain && !uniqueDomains.has(comp.domain)) {
-            uniqueDomains.add(comp.domain);
-            try {
-              await supabase.from('competitor_data').upsert({
-                domain: comp.domain,
-                company_name: comp.title,
-                notes: `Ranks for: ${result.keyword}`,
-              }, { onConflict: 'domain' });
-            } catch { /* non-critical */ }
+          if (!comp.domain) continue;
+          const existing = competitorMap.get(comp.domain);
+          if (existing) {
+            if (!existing.ranksFor.includes(result.keyword)) existing.ranksFor.push(result.keyword);
+          } else {
+            // Extract brand name from domain: snowflake.com → Snowflake, aws.amazon.com → AWS
+            const brand = extractBrandName(comp.domain, comp.title);
+            competitorMap.set(comp.domain, {
+              domain: comp.domain,
+              brandName: brand,
+              ranksFor: [result.keyword],
+              titles: [comp.title],
+            });
           }
         }
       }
 
+      // Store competitor data in DB
+      for (const [, comp] of competitorMap) {
+        try {
+          await supabase.from('competitor_data').upsert({
+            domain: comp.domain,
+            company_name: comp.brandName,
+            notes: `Ranks for: ${comp.ranksFor.join(', ')}`,
+          }, { onConflict: 'domain' });
+        } catch { /* non-critical */ }
+      }
+
+      // Generate conquest keyword suggestions for each competitor
+      const competitors = Array.from(competitorMap.values());
+      const lines: string[] = ['## Competitor Analysis\n'];
+
+      lines.push('### Competitors Found in SERP');
+      lines.push('| Domain | Brand Name | Ranks For |');
+      lines.push('|--------|-----------|-----------|');
+      for (const comp of competitors) {
+        lines.push(`| ${comp.domain} | ${comp.brandName} | ${comp.ranksFor.join(', ')} |`);
+      }
+
+      // Generate conquest keywords
+      const conquestKeywords: string[] = [];
+      lines.push('\n### Recommended Conquest Keywords');
+      lines.push('Bid on these to capture competitor traffic (use lower bids, 50-70% of core CPC):');
+      lines.push('| Competitor | Conquest Keywords |');
+      lines.push('|-----------|-------------------|');
+      for (const comp of competitors.slice(0, 5)) {
+        const brand = comp.brandName.toLowerCase();
+        const conquest = [
+          `${brand} alternative`,
+          `${brand} vs`,
+          `switch from ${brand}`,
+          `${brand} pricing`,
+          `${brand} competitors`,
+        ];
+        conquestKeywords.push(...conquest);
+        lines.push(`| ${comp.brandName} | ${conquest.join(', ')} |`);
+      }
+
+      lines.push(`\n**Total conquest keywords generated:** ${conquestKeywords.length}`);
+      lines.push('Use these in a dedicated Conquest ad group with comparison/alternative landing pages.');
+
       return {
-        result: `Analyzed SERP for ${seedKeywords.length} keywords. Found ${uniqueDomains.size} competitors.`,
-        data: competitorData,
+        result: lines.join('\n'),
+        data: { competitors, conquestKeywords },
       };
     }
 

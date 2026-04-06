@@ -116,25 +116,25 @@ Do NOT summarize or filter heavily — the strategy stage needs this data.`,
 ${FORMAT_RULES}
 ## Required Ad Group Structure
 
-You MUST create at least 4 ad groups covering these themes:
+Create EXACTLY 4-6 ad groups. NO MORE THAN 6. Cover these themes:
 
 1. **Core Product** — direct product/service keywords (highest intent, highest bids)
 2. **Category** — broader category terms (moderate intent, moderate bids)
-3. **Competitor/Conquest** — competitor brand name keywords (REQUIRED if competitors were found in research). Use lower bids (50-70% of core CPC). These capture users searching for competitors.
-4. **Long-tail/FAQ** — question-based and specific queries from People Also Ask. Lower bids, broader reach.
+3. **Competitor/Conquest** — competitor brand name keywords (REQUIRED if competitors were found). Lower bids (50-70% of core CPC).
+4. **Long-tail/FAQ** — question-based and specific queries from People Also Ask. Lower bids.
 
-Add more groups if the research supports it (e.g., separate "Migration" group, "Pricing/Comparison" group).
+You may add 1-2 more groups ONLY if clearly distinct themes exist (e.g., Migration, Pricing). Never exceed 6 total.
 
 ## Match Type Strategy (MUST follow)
 
 | Keyword Intent | Match Type Distribution |
 |---------------|----------------------|
-| High-intent (buy, demo, pricing, implementation) | 50% Exact, 30% Phrase, 20% Broad |
-| Medium-intent (comparison, alternative, vs) | 40% Exact, 40% Phrase, 20% Broad |
-| Exploratory (what is, how to, best) | 20% Phrase, 80% Broad |
-| Conquest (competitor names) | 60% Exact, 40% Phrase (control spend) |
+| High-intent (buy, demo, pricing) | 50% Exact, 30% Phrase, 20% Broad |
+| Medium-intent (comparison, vs) | 40% Exact, 40% Phrase, 20% Broad |
+| Exploratory (what is, how to) | 20% Phrase, 80% Broad |
+| Conquest (competitor names) | 60% Exact, 40% Phrase |
 
-Each ad group should have **15-25 keywords** with the match type mix above.
+Each ad group should have **10-15 keywords**. Max 15.
 
 ## Negative Keywords (MUST include both levels)
 
@@ -171,38 +171,35 @@ Each ad group MUST have a landing page rationale:
 
   build: `You are building a Google Ads campaign in the database. Follow the approved strategy EXACTLY.
 ${FORMAT_RULES}
-## Build Order
+## CRITICAL: Build Systematically
 
-1. \`create_campaign\` — with the strategy parameters (budget, bidding, targeting)
-2. \`create_ad_group\` — for EACH theme in the strategy. Include:
-   - 15-25 keywords per group with the match type distribution from the strategy
-   - 3-5 negative keywords per group to prevent overlap with other groups
-3. \`create_ad\` — create 2 ads per ad group (Google needs at least 2 for rotation/testing)
-4. \`build_tracking_urls\` — distinct URL per ad group (match to strategy's landing page plan)
+You MUST follow this exact order. Do NOT skip steps or lose track.
 
-## Keyword Rules
+**Step 1:** \`create_campaign\` — one call, get the campaign_id.
 
-- Follow the match type distribution from the strategy (e.g., 50% Exact, 30% Phrase, 20% Broad)
-- For each keyword at Exact match, include the same keyword at Phrase match for broader reach
-- Conquest ad group: ONLY competitor brand keywords, not generic terms
+**Step 2:** Create ALL ad groups (one \`create_ad_group\` call per group). Include 10-15 keywords and 3-5 negative keywords per group. Save each ad_group_id.
+
+**Step 3:** Create ads — exactly 2 \`create_ad\` calls per ad group. Use the ad_group_ids from Step 2.
+IMPORTANT: Each headline must be ≤30 characters. Each description must be ≤90 characters.
+COUNT CHARACTERS CAREFULLY before sending. If a headline is close to 30, shorten it.
+If create_ad is rejected, rewrite the copy shorter and retry immediately.
+
+**Step 4:** \`build_tracking_urls\` — one per ad group.
 
 ## Ad Copy Rules
 
-- Headlines: MAXIMUM 30 characters (count spaces!)
-- Descriptions: MAXIMUM 90 characters (count spaces!)
-- No duplicate headlines or descriptions across ads
-- Each ad must include at least one keyword in the headlines
-- Include a strong CTA in at least one headline and one description
-- **Conquest group ads:** Use patterns like "Better Than {Competitor}", "{Competitor} Alternative", "Switch from {Competitor}" — but do NOT use competitor trademarks in display URLs
-- **Core group ads:** Emphasize unique value proposition and differentiators
-- **Category group ads:** Emphasize category leadership and broad benefits
-- **Long-tail/FAQ group ads:** Address the specific question or pain point
+- Headlines: STRICTLY ≤30 characters including spaces. Count before sending.
+- Descriptions: STRICTLY ≤90 characters including spaces.
+- 3-15 headlines per ad, 2-4 descriptions per ad
+- No duplicates across ads in the same group
+- Include keywords in headlines, CTAs in descriptions
+- Conquest ads: "Better Than X", "X Alternative" patterns
+- Core ads: Emphasize USPs and differentiators
 
 ## After Building
 
-Present a summary:
-| Ad Group | Keywords | Match Types | Ads | Landing Page |
-Then list each ad group with all its keywords, match types, negative keywords, and ad copy.`,
+Present a summary table:
+| Ad Group | Keywords | Ads | Landing Page |`,
 
   present: `You have finished building the campaign. Use validate_campaign to run QA checks, then present a summary.
 ${FORMAT_RULES}
@@ -631,16 +628,16 @@ unclear → ["analytics","campaign_read","interaction"]`,
       messages.push({ role: 'assistant', content: response.content });
       messages.push({ role: 'user', content: toolResults });
 
-      // Layer 3: After 4+ iterations, compress older messages to save context
-      if (loopCount >= 4 && messages.length > 8) {
-        // Keep first 2 messages (system context) + last 4 (recent tool calls)
-        const kept = [...messages.slice(0, 2), ...messages.slice(-4)];
-        const compressed = messages.slice(2, -4);
+      // Layer 3: Context compression — NEVER during build (needs all IDs), conservative elsewhere
+      const compressionThreshold = stage === 'build' ? 999 : 8; // disable for build
+      if (loopCount >= compressionThreshold && messages.length > 12) {
+        const kept = [...messages.slice(0, 2), ...messages.slice(-6)];
+        const compressed = messages.slice(2, -6);
         const summary = compressed.map((m) => {
           const content = typeof m.content === 'string' ? m.content : '[tool interaction]';
-          return content.slice(0, 80);
+          return content.slice(0, 120);
         }).join(' | ');
-        kept.splice(2, 0, { role: 'user' as const, content: `[Previous context compressed: ${summary}]` });
+        kept.splice(2, 0, { role: 'user' as const, content: `[Previous context: ${summary}]` });
         messages.length = 0;
         messages.push(...kept);
         logger.info(`Compressed context: ${compressed.length} messages → 1 summary`);

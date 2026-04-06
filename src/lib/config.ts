@@ -41,7 +41,7 @@ export const CONFIG = {
     gather:     { model: 'claude-sonnet-4-20250514', maxTokens: 4096, maxLoops: 3, fallback: 'gpt-4o-mini' },
     research:   { model: 'claude-opus-4-20250514', maxTokens: 8192, maxLoops: 5, fallback: 'gpt-4o' },
     strategy:   { model: 'claude-opus-4-20250514', maxTokens: 8192, maxLoops: 3, fallback: 'gpt-4o' },
-    build:      { model: 'claude-opus-4-20250514', maxTokens: 8192, maxLoops: 15, fallback: 'gpt-4o' },
+    build:      { model: 'claude-opus-4-20250514', maxTokens: 8192, maxLoops: 25, fallback: 'gpt-4o' },
     present:    { model: 'claude-sonnet-4-20250514', maxTokens: 4096, maxLoops: 3, fallback: 'gpt-4o-mini' },
     edit:       { model: 'claude-opus-4-20250514', maxTokens: 8192, maxLoops: 5, fallback: 'gpt-4o' },
     approve:    { model: 'claude-sonnet-4-20250514', maxTokens: 4096, maxLoops: 3, fallback: 'gpt-4o-mini' },

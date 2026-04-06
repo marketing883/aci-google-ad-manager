@@ -18,7 +18,9 @@
       "Bash(pip install:*)",
       "Bash(python generate_pdf.py)",
       "Bash(npm cache:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(node -e \"const d=require\\(''''fs''''\\).readFileSync\\(''''/dev/stdin'''',''''utf8''''\\);const c=JSON.parse\\(d\\);c.forEach\\(x=>console.log\\(x.id, ''''|'''', x.name, ''''|'''', x.status\\)\\)\")",
+      "Bash(curl -s \"https://iatbuhtqffjcjvejrfxm.supabase.co/rest/v1/campaigns?select=id,name,status,created_at&order=created_at.desc&limit=5\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdGJ1aHRxZmZqY2p2ZWpyZnhtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA2MTYyMiwiZXhwIjoyMDkwNjM3NjIyfQ.Ef2tRpc3uR1ESljgNswVuiEUdi4qULO1WTploesKNEM\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdGJ1aHRxZmZqY2p2ZWpyZnhtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA2MTYyMiwiZXhwIjoyMDkwNjM3NjIyfQ.Ef2tRpc3uR1ESljgNswVuiEUdi4qULO1WTploesKNEM\")"
     ]
   }
 }

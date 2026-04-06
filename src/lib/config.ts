@@ -68,7 +68,7 @@ export const CONFIG = {
 
   // Google Ads
   googleAds: {
-    apiVersion: 'v18',
+    apiVersion: 'v21',
     scopes: ['https://www.googleapis.com/auth/adwords'],
     redirectUri: process.env.GOOGLE_ADS_REDIRECT_URI || 'http://localhost:3000/api/google-ads/auth/callback',
   },

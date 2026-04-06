@@ -4,6 +4,7 @@ import { createLogger } from '../utils/logger';
 import { comprehensiveKeywordResearch, getCompetitors, getRelatedKeywords, type ComprehensiveKeywordData } from '../dataforseo';
 import { searchImages } from '../unsplash';
 import { createGoogleAdsClient } from '../google-ads/client';
+import { syncPerformanceData } from '../google-ads/sync';
 import { qaSentinel } from './qa-sentinel';
 
 const logger = createLogger('Tools');
@@ -51,7 +52,8 @@ export type ToolName =
   | 'send_report'
   | 'schedule_report'
   | 'manage_report_schedules'
-  | 'get_company_context';
+  | 'get_company_context'
+  | 'sync_google_performance';
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -442,6 +444,18 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {},
+      required: [],
+    },
+  },
+  // ---- GOOGLE ADS SYNC ----
+  {
+    name: 'sync_google_performance',
+    description: 'Pull fresh performance data from Google Ads into the local database. Call this when the user asks for up-to-date metrics, before analyzing performance, or when data seems stale. Returns the number of campaigns synced and performance snapshots updated.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        days: { type: 'number', description: 'Number of days of data to sync (default 7, max 90)' },
+      },
       required: [],
     },
   },
@@ -1422,6 +1436,20 @@ export async function executeTool(
       return { result: `Unknown action: ${action}` };
     }
 
+    // ---- SYNC GOOGLE PERFORMANCE ----
+    case 'sync_google_performance': {
+      const days = Math.min(Math.max((input.days as number) || 7, 1), 90);
+      try {
+        const result = await syncPerformanceData(days);
+        return {
+          result: `Synced performance data for last ${days} days: ${result.campaigns_synced} campaigns, ${result.snapshots_upserted} snapshots updated.${result.campaigns_synced === 0 ? ' No campaigns found on Google Ads — have you pushed a campaign yet?' : ''}`,
+          data: result,
+        };
+      } catch (e) {
+        return { result: `Sync failed: ${(e as Error).message}. Check Google Ads connection in Settings.` };
+      }
+    }
+
     // ---- COMPANY CONTEXT ----
     case 'get_company_context': {
       const { data: setting } = await supabase
@@ -1510,7 +1538,7 @@ export const TOOL_GROUPS: Record<string, ToolName[]> = {
   campaign_read: ['get_campaign_performance', 'validate_campaign'],
   campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign'],
   research: ['research_keywords', 'analyze_competitors', 'get_company_context'],
-  analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities'],
+  analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities', 'sync_google_performance'],
   reports: ['send_report', 'schedule_report', 'manage_report_schedules'],
   interaction: ['ask_user_questions'],
 };

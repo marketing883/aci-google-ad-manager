@@ -833,30 +833,29 @@ export async function executeTool(
         headlines_sample: headlines.slice(0, 3).map((h) => `"${h.text}" (${h.text.length} chars)`),
       });
 
-      // Validate minimum requirements before QA
+      // Validate minimum counts
       if (headlines.length < 3) {
-        return { result: `Need at least 3 headlines, got ${headlines.length}. Send headlines as an array of objects: [{"text": "Headline 1"}, {"text": "Headline 2"}, {"text": "Headline 3"}]` };
+        return { result: `REJECTED: Need at least 3 headlines, got ${headlines.length}. Rewrite and call create_ad again with 3-15 headlines as [{"text": "..."}].` };
       }
       if (descriptions.length < 2) {
-        return { result: `Need at least 2 descriptions, got ${descriptions.length}. Send descriptions as an array of objects: [{"text": "Description 1"}, {"text": "Description 2"}]` };
+        return { result: `REJECTED: Need at least 2 descriptions, got ${descriptions.length}. Rewrite and call create_ad again with 2-4 descriptions as [{"text": "..."}].` };
       }
 
-      // Auto-truncate headlines over 30 chars (don't reject — fix it)
-      for (const h of headlines) {
-        if (h.text.length > 30) {
-          logger.warn(`Auto-truncating headline: "${h.text}" (${h.text.length} chars)`);
-          h.text = h.text.slice(0, 30).trim();
+      // Check character limits — give specific feedback so AI can rewrite
+      const tooLongH = headlines.filter((h) => h.text.length > 30);
+      const tooLongD = descriptions.filter((d) => d.text.length > 90);
+      if (tooLongH.length > 0 || tooLongD.length > 0) {
+        const issues: string[] = [];
+        for (const h of tooLongH) {
+          issues.push(`Headline "${h.text}" is ${h.text.length} chars (max 30) — shorten by ${h.text.length - 30} chars`);
         }
-      }
-      // Auto-truncate descriptions over 90 chars
-      for (const d of descriptions) {
-        if (d.text.length > 90) {
-          logger.warn(`Auto-truncating description: "${d.text}" (${d.text.length} chars)`);
-          d.text = d.text.slice(0, 90).trim();
+        for (const d of tooLongD) {
+          issues.push(`Description "${d.text}" is ${d.text.length} chars (max 90) — shorten by ${d.text.length - 90} chars`);
         }
+        return { result: `REJECTED — these are too long. Rewrite them shorter and call create_ad again:\n${issues.join('\n')}` };
       }
 
-      // Remove duplicates
+      // Remove duplicates (safe auto-fix, doesn't affect quality)
       const seenH = new Set<string>();
       const dedupedHeadlines = headlines.filter((h) => {
         const key = h.text.toLowerCase();
@@ -872,7 +871,7 @@ export async function executeTool(
         return true;
       });
 
-      // Validate via QA (after auto-fixes)
+      // Final QA check
       const qaResult = qaSentinel.validateAdCopySync({
         headlines: dedupedHeadlines,
         descriptions: dedupedDescriptions,
@@ -882,8 +881,8 @@ export async function executeTool(
       });
 
       if (!qaResult.passed) {
-        const issues = qaResult.errors.map((e) => `${e.field}: ${e.message}${e.suggestion ? ` → ${e.suggestion}` : ''}`).join('; ');
-        return { result: `QA failed: ${issues}` };
+        const issues = qaResult.errors.map((e) => `${e.field}: ${e.message}`).join('\n');
+        return { result: `REJECTED by QA. Fix these and call create_ad again:\n${issues}` };
       }
 
       const { data: ad, error } = await supabase

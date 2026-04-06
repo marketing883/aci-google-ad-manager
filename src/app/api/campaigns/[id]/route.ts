@@ -121,23 +121,35 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/campaigns/[id] — Soft delete
+// DELETE /api/campaigns/[id] — Soft delete (default) or hard delete (?hard=true)
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
+    const hard = request.nextUrl.searchParams.get('hard') === 'true';
     const supabase = createAdminClient();
 
-    const { error } = await supabase
-      .from('campaigns')
-      .update({ status: 'removed' })
-      .eq('id', id);
+    if (hard) {
+      // Hard delete — permanently remove from DB (CASCADE deletes ad_groups, ads, keywords, negative_keywords)
+      const { error } = await supabase
+        .from('campaigns')
+        .delete()
+        .eq('id', id);
 
-    if (error) throw error;
+      if (error) throw error;
+    } else {
+      // Soft delete — set status to removed
+      const { error } = await supabase
+        .from('campaigns')
+        .update({ status: 'removed' })
+        .eq('id', id);
 
-    return NextResponse.json({ success: true });
+      if (error) throw error;
+    }
+
+    return NextResponse.json({ success: true, hard });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to delete campaign' },

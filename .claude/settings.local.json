@@ -17,7 +17,8 @@
       "Bash(grep -n \"onSubmit\\\\|onClick\\\\|handleApprove\\\\|handleReject\" /c/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/src/app/approvals/[id]/page.tsx)",
       "Bash(pip install:*)",
       "Bash(python generate_pdf.py)",
-      "Bash(npm cache:*)"
+      "Bash(npm cache:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

@@ -248,10 +248,29 @@ export class CampaignHarness {
   private openai: OpenAI;
   private supabase = createAdminClient();
   private standaloneTools: Anthropic.Tool[] = [];
+  private companyHeader: string = '';
 
   constructor() {
     this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+
+  /** Load micro-header from company profile (~30 tokens, cached per harness run) */
+  private async loadCompanyHeader(): Promise<void> {
+    if (this.companyHeader) return; // already loaded
+    try {
+      const { data } = await this.supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'company_profile')
+        .single();
+      if (data?.value) {
+        const p = data.value as { company_name?: string; domain?: string; tagline?: string };
+        if (p.company_name) {
+          this.companyHeader = `\nCompany: ${p.company_name}${p.domain ? ` | ${p.domain}` : ''}${p.tagline ? ` | ${p.tagline}` : ''}`;
+        }
+      }
+    } catch { /* no profile set — that's fine */ }
   }
 
   /** Layer 1: Haiku classifier — pick relevant tool groups (~$0.0001 per call) */
@@ -312,6 +331,7 @@ unclear → ["analytics","campaign_read","interaction"]`,
     resumeStage?: PipelineStage,
     existingContext?: Partial<PipelineContext>,
   ): AsyncGenerator<HarnessEvent> {
+    await this.loadCompanyHeader();
     const ctx: PipelineContext = {
       userMessage: message,
       chatHistory,
@@ -361,6 +381,7 @@ unclear → ["analytics","campaign_read","interaction"]`,
   // ============================================================
 
   async *runStandalone(message: string, chatHistory: ChatMessage[]): AsyncGenerator<HarnessEvent> {
+    await this.loadCompanyHeader();
     // Classify intent to pick only relevant tools
     const groups = await this.classifyIntent(message);
     this.standaloneTools = getToolsByGroups(groups);
@@ -397,7 +418,7 @@ unclear → ["analytics","campaign_read","interaction"]`,
     const tools = stage === 'standalone' && this.standaloneTools.length > 0
       ? this.standaloneTools
       : getToolsForStage(stage);
-    const systemPrompt = STAGE_PROMPTS[stage];
+    const systemPrompt = STAGE_PROMPTS[stage] + this.companyHeader;
     const contextSummary = this.buildContextForStage(stage, ctx);
 
     // Get stage-specific model config

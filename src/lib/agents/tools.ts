@@ -50,7 +50,8 @@ export type ToolName =
   | 'suggest_opportunities'
   | 'send_report'
   | 'schedule_report'
-  | 'manage_report_schedules';
+  | 'manage_report_schedules'
+  | 'get_company_context';
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -434,6 +435,16 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ['action'],
     },
   },
+  // ---- COMPANY CONTEXT ----
+  {
+    name: 'get_company_context',
+    description: 'Retrieve the company profile — services, USPs, landing pages, competitors, brand terms, and default settings. Call this when creating campaigns, writing ad copy, or building strategy. Do NOT call for analytics, reports, or performance queries.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 // ============================================================
@@ -741,6 +752,25 @@ export async function executeTool(
       if (Array.isArray(input.negative_keywords)) {
         negKeywords = input.negative_keywords.map((nk: unknown) => String(nk)).filter(Boolean);
       }
+
+      // Auto-merge default negatives from company profile (Layer 3: zero prompt tokens)
+      try {
+        const { data: profileSetting } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('key', 'company_profile')
+          .single();
+        if (profileSetting?.value) {
+          const defaults = (profileSetting.value as { default_negative_keywords?: string[] }).default_negative_keywords;
+          if (defaults?.length) {
+            const existing = new Set(negKeywords.map((k) => k.toLowerCase()));
+            for (const d of defaults) {
+              if (!existing.has(d.toLowerCase())) negKeywords.push(d);
+            }
+          }
+        }
+      } catch { /* no profile — skip */ }
+
       if (negKeywords.length > 0) {
         await supabase.from('negative_keywords').insert(
           negKeywords.map((text) => ({
@@ -1321,6 +1351,78 @@ export async function executeTool(
       return { result: `Unknown action: ${action}` };
     }
 
+    // ---- COMPANY CONTEXT ----
+    case 'get_company_context': {
+      const { data: setting } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'company_profile')
+        .single();
+
+      if (!setting?.value) {
+        return {
+          result: 'No company profile configured. The user should set up their company profile in Settings. Proceed with what the user has told you about their business.',
+        };
+      }
+
+      const profile = setting.value as Record<string, unknown>;
+      const lines: string[] = ['## Company Profile\n'];
+
+      if (profile.company_name) lines.push(`**Company:** ${profile.company_name}`);
+      if (profile.domain) lines.push(`**Domain:** ${profile.domain}`);
+      if (profile.tagline) lines.push(`**Tagline:** ${profile.tagline}`);
+
+      // Services with landing pages
+      const services = profile.services as Array<{ name: string; landing_page?: string; description?: string }> | undefined;
+      if (services?.length) {
+        lines.push('\n**Services:**');
+        lines.push('| Service | Landing Page | Description |');
+        lines.push('|---------|-------------|-------------|');
+        for (const s of services) {
+          lines.push(`| ${s.name} | ${s.landing_page || '—'} | ${s.description || '—'} |`);
+        }
+      }
+
+      // USPs
+      const usps = profile.differentiators as string[] | undefined;
+      if (usps?.length) {
+        lines.push('\n**Differentiators (use in ad copy):**');
+        for (const u of usps) lines.push(`- ${u}`);
+      }
+
+      // Industries
+      const industries = profile.target_industries as string[] | undefined;
+      if (industries?.length) {
+        lines.push(`\n**Target Industries:** ${industries.join(', ')}`);
+      }
+
+      // Competitors
+      const competitors = profile.known_competitors as Array<{ name: string; domain?: string }> | undefined;
+      if (competitors?.length) {
+        lines.push('\n**Known Competitors (target in conquest groups):**');
+        for (const c of competitors) {
+          lines.push(`- ${c.name}${c.domain ? ` (${c.domain})` : ''}`);
+        }
+      }
+
+      // Brand terms
+      const brandTerms = profile.brand_terms as string[] | undefined;
+      if (brandTerms?.length) {
+        lines.push(`\n**Brand Terms (defend with brand campaigns):** ${brandTerms.join(', ')}`);
+      }
+
+      // Default negatives
+      const negatives = profile.default_negative_keywords as string[] | undefined;
+      if (negatives?.length) {
+        lines.push(`\n**Default Negative Keywords (always apply):** ${negatives.join(', ')}`);
+      }
+
+      // Tone
+      if (profile.tone) lines.push(`\n**Brand Voice:** ${profile.tone}`);
+
+      return { result: lines.join('\n'), data: profile };
+    }
+
     default:
       return { result: `Unknown tool: ${name}` };
   }
@@ -1334,10 +1436,10 @@ export type PipelineStage = 'gather' | 'research' | 'strategy' | 'build' | 'pres
 
 // Tool groups for intent-based selection
 export const TOOL_GROUPS: Record<string, ToolName[]> = {
-  campaign_create: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images'],
+  campaign_create: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'get_company_context'],
   campaign_read: ['get_campaign_performance', 'validate_campaign'],
   campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad'],
-  research: ['research_keywords', 'analyze_competitors'],
+  research: ['research_keywords', 'analyze_competitors', 'get_company_context'],
   analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities'],
   reports: ['send_report', 'schedule_report', 'manage_report_schedules'],
   interaction: ['ask_user_questions'],
@@ -1351,12 +1453,12 @@ export const FALLBACK_GROUPS = ['analytics', 'campaign_read', 'campaign_edit', '
  */
 export function getToolsForStage(stage: PipelineStage): Anthropic.Tool[] {
   const toolsByStage: Record<PipelineStage, ToolName[]> = {
-    gather: ['ask_user_questions'],
-    research: ['research_keywords', 'analyze_competitors'],
-    strategy: [],
-    build: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'delete_ad_group', 'delete_ad'],
+    gather: ['ask_user_questions', 'get_company_context'],
+    research: ['research_keywords', 'analyze_competitors', 'get_company_context'],
+    strategy: ['get_company_context'],
+    build: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'delete_ad_group', 'delete_ad', 'get_company_context'],
     present: ['validate_campaign'],
-    edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'create_ad_group', 'create_ad', 'build_tracking_urls'],
+    edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'get_company_context'],
     approve: ['validate_campaign', 'submit_for_approval'],
     standalone: [], // Will be filled by classifier — empty here
   };

@@ -2,13 +2,36 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Settings, Link2, Brain, Clock, Loader2, CheckCircle } from 'lucide-react';
+import { Settings, Link2, Brain, Clock, Loader2, CheckCircle, Building2, Plus, X } from 'lucide-react';
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [connected, setConnected] = useState(false);
+
+  // Company profile state
+  interface Service { name: string; landing_page: string; description: string }
+  interface Competitor { name: string; domain: string }
+  interface CompanyProfile {
+    company_name: string; domain: string; tagline: string;
+    services: Service[]; differentiators: string[];
+    target_industries: string[]; known_competitors: Competitor[];
+    brand_terms: string[]; default_negative_keywords: string[];
+    tone: string;
+  }
+  const emptyProfile: CompanyProfile = {
+    company_name: '', domain: '', tagline: '', services: [],
+    differentiators: [], target_industries: [], known_competitors: [],
+    brand_terms: [], default_negative_keywords: [], tone: '',
+  };
+  const [profile, setProfile] = useState<CompanyProfile>(emptyProfile);
+
+  function loadProfile(s: Record<string, unknown>) {
+    if (s.company_profile && typeof s.company_profile === 'object') {
+      setProfile({ ...emptyProfile, ...(s.company_profile as Partial<CompanyProfile>) });
+    }
+  }
 
   useEffect(() => {
     fetchSettings();
@@ -20,6 +43,7 @@ export default function SettingsPage() {
       const res = await fetch('/api/settings');
       const data = await res.json();
       setSettings(data);
+      loadProfile(data);
     } catch { /* ignore */ }
   }
 
@@ -35,10 +59,12 @@ export default function SettingsPage() {
     setSaving(true);
     setSaved(false);
     try {
+      // Merge profile into settings before saving
+      const toSave = { ...settings, company_profile: profile };
       await fetch('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(toSave),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -74,6 +100,100 @@ export default function SettingsPage() {
             <Link href="/settings/connection" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors">
               {connected ? 'Manage Connection' : 'Connect Account'}
             </Link>
+          </div>
+        </div>
+
+        {/* Company Profile */}
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-1">
+            <Building2 className="w-5 h-5 text-gray-400" />
+            <h2 className="text-lg font-semibold">Company Profile</h2>
+          </div>
+          <p className="text-xs text-gray-500 mb-5 ml-8">The AI uses this to write better ads, pick relevant keywords, and target your real competitors.</p>
+
+          <div className="space-y-5">
+            {/* Basic Info */}
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Company Name</label>
+                <input type="text" value={profile.company_name} onChange={(e) => setProfile((p) => ({ ...p, company_name: e.target.value }))} placeholder="ACI InfoTech" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Domain</label>
+                <input type="text" value={profile.domain} onChange={(e) => setProfile((p) => ({ ...p, domain: e.target.value }))} placeholder="aciinfotech.com" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Tagline</label>
+                <input type="text" value={profile.tagline} onChange={(e) => setProfile((p) => ({ ...p, tagline: e.target.value }))} placeholder="Microsoft partner — D365, Azure" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+
+            {/* Services */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-gray-400">Services &amp; Landing Pages</label>
+                <button onClick={() => setProfile((p) => ({ ...p, services: [...p.services, { name: '', landing_page: '', description: '' }] }))} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>
+              </div>
+              {profile.services.map((svc, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2 mb-2">
+                  <input type="text" value={svc.name} onChange={(e) => { const s = [...profile.services]; s[i] = { ...s[i], name: e.target.value }; setProfile((p) => ({ ...p, services: s })); }} placeholder="Service name" className="col-span-3 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input type="text" value={svc.landing_page} onChange={(e) => { const s = [...profile.services]; s[i] = { ...s[i], landing_page: e.target.value }; setProfile((p) => ({ ...p, services: s })); }} placeholder="https://..." className="col-span-4 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input type="text" value={svc.description} onChange={(e) => { const s = [...profile.services]; s[i] = { ...s[i], description: e.target.value }; setProfile((p) => ({ ...p, services: s })); }} placeholder="Short description" className="col-span-4 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <button onClick={() => setProfile((p) => ({ ...p, services: p.services.filter((_, j) => j !== i) }))} className="col-span-1 text-red-400/50 hover:text-red-400 flex items-center justify-center"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+            </div>
+
+            {/* Differentiators */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-gray-400">Differentiators / USPs (used in ad copy)</label>
+                <button onClick={() => setProfile((p) => ({ ...p, differentiators: [...p.differentiators, ''] }))} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>
+              </div>
+              {profile.differentiators.map((d, i) => (
+                <div key={i} className="flex gap-2 mb-2">
+                  <input type="text" value={d} onChange={(e) => { const arr = [...profile.differentiators]; arr[i] = e.target.value; setProfile((p) => ({ ...p, differentiators: arr })); }} placeholder="e.g., 15+ years Microsoft Gold Partner" className="flex-1 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <button onClick={() => setProfile((p) => ({ ...p, differentiators: p.differentiators.filter((_, j) => j !== i) }))} className="text-red-400/50 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+            </div>
+
+            {/* Target Industries + Known Competitors side by side */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Target Industries (comma-separated)</label>
+                <input type="text" value={profile.target_industries.join(', ')} onChange={(e) => setProfile((p) => ({ ...p, target_industries: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} placeholder="Manufacturing, Healthcare, Retail" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Brand Terms to Defend (comma-separated)</label>
+                <input type="text" value={profile.brand_terms.join(', ')} onChange={(e) => setProfile((p) => ({ ...p, brand_terms: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} placeholder="ACI InfoTech, ArqAI" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+
+            {/* Known Competitors */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-gray-400">Known Competitors (for conquest targeting)</label>
+                <button onClick={() => setProfile((p) => ({ ...p, known_competitors: [...p.known_competitors, { name: '', domain: '' }] }))} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>
+              </div>
+              {profile.known_competitors.map((c, i) => (
+                <div key={i} className="flex gap-2 mb-2">
+                  <input type="text" value={c.name} onChange={(e) => { const arr = [...profile.known_competitors]; arr[i] = { ...arr[i], name: e.target.value }; setProfile((p) => ({ ...p, known_competitors: arr })); }} placeholder="Competitor name" className="w-48 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input type="text" value={c.domain} onChange={(e) => { const arr = [...profile.known_competitors]; arr[i] = { ...arr[i], domain: e.target.value }; setProfile((p) => ({ ...p, known_competitors: arr })); }} placeholder="domain.com" className="flex-1 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <button onClick={() => setProfile((p) => ({ ...p, known_competitors: p.known_competitors.filter((_, j) => j !== i) }))} className="text-red-400/50 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+            </div>
+
+            {/* Default Negatives + Tone */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Default Negative Keywords (auto-applied to all ad groups)</label>
+              <input type="text" value={profile.default_negative_keywords.join(', ')} onChange={(e) => setProfile((p) => ({ ...p, default_negative_keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} placeholder="jobs, careers, free, tutorial, training, certification" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Brand Voice / Tone</label>
+              <input type="text" value={profile.tone} onChange={(e) => setProfile((p) => ({ ...p, tone: e.target.value }))} placeholder="Professional, enterprise-focused, outcome-driven" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
           </div>
         </div>
 

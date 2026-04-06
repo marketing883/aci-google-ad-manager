@@ -356,19 +356,22 @@ export class GoogleAdsClient {
     path1?: string;
     path2?: string;
   }): Promise<MutateResult[]> {
+    // Build RSA object — path1/path2 go inside responsiveSearchAd, not at ad level
+    const rsaObj: Record<string, unknown> = {
+      headlines: ad.headlines,
+      descriptions: ad.descriptions,
+    };
+    if (ad.path1 && ad.path1.trim()) rsaObj.path1 = ad.path1;
+    if (ad.path2 && ad.path2.trim()) rsaObj.path2 = ad.path2;
+
     return this.mutate('adGroupAds', [
       {
         create: {
           adGroup: ad.ad_group_resource_name,
           status: 'ENABLED',
           ad: {
-            responsiveSearchAd: {
-              headlines: ad.headlines,
-              descriptions: ad.descriptions,
-            },
+            responsiveSearchAd: rsaObj,
             finalUrls: ad.final_urls,
-            ...(ad.path1 ? { path1: ad.path1 } : {}),
-            ...(ad.path2 ? { path2: ad.path2 } : {}),
           },
         },
       },

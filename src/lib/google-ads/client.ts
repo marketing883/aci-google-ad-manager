@@ -106,9 +106,16 @@ export class GoogleAdsClient {
     );
 
     if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}));
-      const errorMsg = this.extractErrorMessage(errorBody);
-      throw new Error(`Mutate failed: ${errorMsg}`);
+      const responseText = await response.text().catch(() => '');
+      let errorMsg: string;
+      try {
+        const errorBody = JSON.parse(responseText);
+        errorMsg = this.extractErrorMessage(errorBody);
+      } catch {
+        errorMsg = responseText.slice(0, 500) || `HTTP ${response.status} ${response.statusText}`;
+      }
+      logger.error(`Mutate failed for ${entityType}`, { status: response.status, error: errorMsg });
+      throw new Error(`Mutate failed (${response.status}): ${errorMsg}`);
     }
 
     const data = await response.json();
@@ -214,16 +221,43 @@ export class GoogleAdsClient {
       campaignBudget: budgetResults[0].resource_name,
       advertisingChannelType: campaign.channel_type,
       status: 'PAUSED', // Always start paused
-      biddingStrategyType: campaign.bidding_strategy,
     };
 
-    if (campaign.target_cpa_micros) {
+    // Bidding strategy — Google Ads API needs strategy-specific objects, not just the enum
+    switch (campaign.bidding_strategy) {
+      case 'MANUAL_CPC':
+        campaignData.manualCpc = { enhancedCpcEnabled: false };
+        break;
+      case 'MAXIMIZE_CLICKS':
+        campaignData.maximizeClicks = {};
+        break;
+      case 'MAXIMIZE_CONVERSIONS':
+        campaignData.maximizeConversions = campaign.target_cpa_micros
+          ? { targetCpaMicros: campaign.target_cpa_micros.toString() }
+          : {};
+        break;
+      case 'MAXIMIZE_CONVERSION_VALUE':
+        campaignData.maximizeConversionValue = campaign.target_roas
+          ? { targetRoas: campaign.target_roas }
+          : {};
+        break;
+      case 'TARGET_CPA':
+        campaignData.targetCpa = { targetCpaMicros: (campaign.target_cpa_micros || 0).toString() };
+        break;
+      case 'TARGET_ROAS':
+        campaignData.targetRoas = { targetRoas: campaign.target_roas || 0 };
+        break;
+      default:
+        campaignData.maximizeClicks = {};
+    }
+
+    if (campaign.target_cpa_micros && !campaignData.targetCpa) {
       campaignData.targetCpa = {
         targetCpaMicros: campaign.target_cpa_micros.toString(),
       };
     }
 
-    if (campaign.target_roas) {
+    if (campaign.target_roas && !campaignData.targetRoas) {
       campaignData.targetRoas = {
         targetRoas: campaign.target_roas,
       };

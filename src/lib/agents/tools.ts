@@ -996,12 +996,17 @@ export async function executeTool(
           language_targets: campaign.language_targets || [],
           network_settings: campaign.network_settings || { search: true, display: false, partners: false },
         },
-        ad_groups: (adGroups || []).map((ag: { id: string; name: string }) => ({
+        ad_groups: (adGroups || []).map((ag: { id: string; name: string; status: string; cpc_bid_micros: number }) => ({
+          id: ag.id,
           name: ag.name,
-          ads: ads.filter((a) => a.ad_group_id === ag.id).map((a) => ({
+          status: ag.status,
+          cpc_bid_micros: ag.cpc_bid_micros,
+          ads: ads.filter((a) => a.ad_group_id === ag.id).map((a: Record<string, unknown>) => ({
+            id: a.id,
             headlines: a.headlines,
             descriptions: a.descriptions,
             final_urls: a.final_urls,
+            status: a.status,
           })),
           keywords: keywords.filter((k) => k.ad_group_id === ag.id).map((k) => ({
             text: k.text,
@@ -1013,14 +1018,21 @@ export async function executeTool(
 
       const qaResult = await qaSentinel.validateCampaignBlueprint(blueprint as any);
 
+      // Build structured summary with IDs so AI can reference them
+      const structureLines: string[] = [`Campaign: "${campaign.name}" (${campaignId})\n`];
+      for (const ag of blueprint.ad_groups) {
+        const agTyped = ag as { id: string; name: string; status: string; ads: Array<{ id: string }>; keywords: Array<{ text: string }> };
+        structureLines.push(`Ad Group: "${agTyped.name}" (id: ${agTyped.id}) — ${agTyped.ads.length} ads, ${agTyped.keywords.length} keywords, status: ${agTyped.status}`);
+      }
+
       if (qaResult.passed) {
         const warnText = qaResult.warnings.length > 0
-          ? ` Warnings: ${qaResult.warnings.map((w) => w.message).join('; ')}`
+          ? `\nWarnings: ${qaResult.warnings.map((w) => w.message).join('; ')}`
           : '';
-        return { result: `Campaign validation PASSED.${warnText}`, data: qaResult };
+        return { result: `Campaign validation PASSED.\n\n${structureLines.join('\n')}${warnText}`, data: qaResult };
       } else {
         const issues = qaResult.errors.map((e) => `${e.field}: ${e.message}`).join('\n');
-        return { result: `Campaign validation FAILED:\n${issues}`, data: qaResult };
+        return { result: `Campaign validation FAILED:\n${issues}\n\n## Structure with IDs:\n${structureLines.join('\n')}`, data: qaResult };
       }
     }
 
@@ -1496,7 +1508,7 @@ export type PipelineStage = 'gather' | 'research' | 'strategy' | 'build' | 'pres
 export const TOOL_GROUPS: Record<string, ToolName[]> = {
   campaign_create: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'get_company_context'],
   campaign_read: ['get_campaign_performance', 'validate_campaign'],
-  campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad'],
+  campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign'],
   research: ['research_keywords', 'analyze_competitors', 'get_company_context'],
   analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities'],
   reports: ['send_report', 'schedule_report', 'manage_report_schedules'],

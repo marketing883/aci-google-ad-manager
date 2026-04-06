@@ -1372,15 +1372,10 @@ export async function executeTool(
       if (profile.domain) lines.push(`**Domain:** ${profile.domain}`);
       if (profile.tagline) lines.push(`**Tagline:** ${profile.tagline}`);
 
-      // Services with landing pages
-      const services = profile.services as Array<{ name: string; landing_page?: string; description?: string }> | undefined;
+      // Services (used as seed keywords for research)
+      const services = profile.services as Array<{ name: string; description?: string }> | undefined;
       if (services?.length) {
-        lines.push('\n**Services:**');
-        lines.push('| Service | Landing Page | Description |');
-        lines.push('|---------|-------------|-------------|');
-        for (const s of services) {
-          lines.push(`| ${s.name} | ${s.landing_page || '—'} | ${s.description || '—'} |`);
-        }
+        lines.push(`\n**Services/Products:** ${services.map((s) => s.name).join(', ')}`);
       }
 
       // USPs
@@ -1403,6 +1398,8 @@ export async function executeTool(
         for (const c of competitors) {
           lines.push(`- ${c.name}${c.domain ? ` (${c.domain})` : ''}`);
         }
+      } else {
+        lines.push('\n**Competitors:** Not specified — discover them from SERP via analyze_competitors.');
       }
 
       // Brand terms
@@ -1414,7 +1411,9 @@ export async function executeTool(
       // Default negatives
       const negatives = profile.default_negative_keywords as string[] | undefined;
       if (negatives?.length) {
-        lines.push(`\n**Default Negative Keywords (always apply):** ${negatives.join(', ')}`);
+        lines.push(`\n**Default Negative Keywords (auto-applied to all ad groups):** ${negatives.join(', ')}`);
+      } else {
+        lines.push('\n**Default Negatives:** Not specified — use standard negatives: jobs, careers, free, tutorial, training, certification, salary, intern.');
       }
 
       // Tone

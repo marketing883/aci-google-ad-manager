@@ -130,18 +130,9 @@ export default function SettingsPage() {
 
             {/* Services */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-gray-400">Services &amp; Landing Pages</label>
-                <button onClick={() => setProfile((p) => ({ ...p, services: [...p.services, { name: '', landing_page: '', description: '' }] }))} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>
-              </div>
-              {profile.services.map((svc, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 mb-2">
-                  <input type="text" value={svc.name} onChange={(e) => { const s = [...profile.services]; s[i] = { ...s[i], name: e.target.value }; setProfile((p) => ({ ...p, services: s })); }} placeholder="Service name" className="col-span-3 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <input type="text" value={svc.landing_page} onChange={(e) => { const s = [...profile.services]; s[i] = { ...s[i], landing_page: e.target.value }; setProfile((p) => ({ ...p, services: s })); }} placeholder="https://..." className="col-span-4 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <input type="text" value={svc.description} onChange={(e) => { const s = [...profile.services]; s[i] = { ...s[i], description: e.target.value }; setProfile((p) => ({ ...p, services: s })); }} placeholder="Short description" className="col-span-4 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <button onClick={() => setProfile((p) => ({ ...p, services: p.services.filter((_, j) => j !== i) }))} className="col-span-1 text-red-400/50 hover:text-red-400 flex items-center justify-center"><X className="w-3.5 h-3.5" /></button>
-                </div>
-              ))}
+              <label className="block text-xs text-gray-400 mb-1">Services / Products (comma-separated)</label>
+              <input type="text" value={profile.services.map((s) => s.name).join(', ')} onChange={(e) => setProfile((p) => ({ ...p, services: e.target.value.split(',').map((s) => ({ name: s.trim(), landing_page: '', description: '' })).filter((s) => s.name) }))} placeholder="Dynamics 365, Azure Cloud, Power Platform, AI Solutions" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p className="text-[10px] text-gray-600 mt-1">The AI uses these as seed keywords for research. Landing pages are provided per-campaign in chat.</p>
             </div>
 
             {/* Differentiators */}

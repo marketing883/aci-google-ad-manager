@@ -85,8 +85,12 @@ export class ApprovalEngine {
       try {
         return await this.apply(id);
       } catch (applyError) {
-        // Don't revert approval if push fails — stay approved, log the error
-        logger.warn(`Auto-apply failed for ${id}, staying approved`, {
+        // apply() writes 'failed' to DB before throwing — revert to 'approved'
+        await this.supabase
+          .from('approval_queue')
+          .update({ status: 'approved', error_message: `Google Ads push failed: ${(applyError as Error).message}. Campaign is approved but not yet synced.` })
+          .eq('id', id);
+        logger.warn(`Auto-apply failed for ${id}, reverting to approved`, {
           error: (applyError as Error).message,
         });
         return data;

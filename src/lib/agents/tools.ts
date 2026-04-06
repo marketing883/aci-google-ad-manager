@@ -790,43 +790,100 @@ export async function executeTool(
 
     // ---- CREATE AD ----
     case 'create_ad': {
-      // Normalize headlines — handle strings, objects, mixed
-      const rawHeadlines = Array.isArray(input.headlines) ? input.headlines : [];
+      // Normalize headlines — handle strings, objects, mixed, nested arrays
+      let rawHeadlines: unknown[] = [];
+      if (Array.isArray(input.headlines)) {
+        rawHeadlines = input.headlines;
+      } else if (typeof input.headlines === 'string') {
+        // AI might send comma-separated string
+        rawHeadlines = input.headlines.split('|').map((s: string) => s.trim()).filter(Boolean);
+      }
       const headlines = rawHeadlines.map((h: unknown) => {
-        if (typeof h === 'string') return { text: h };
+        if (typeof h === 'string') return { text: h.trim() };
         if (typeof h === 'object' && h !== null) {
           const obj = h as Record<string, unknown>;
-          return { text: String(obj.text || obj.headline || ''), pinned_position: obj.pinned_position as number | undefined };
+          return { text: String(obj.text || obj.headline || obj.value || '').trim(), pinned_position: obj.pinned_position as number | undefined };
         }
-        return { text: String(h) };
+        return { text: String(h).trim() };
       }).filter((h) => h.text.length > 0);
 
-      const rawDescriptions = Array.isArray(input.descriptions) ? input.descriptions : [];
+      let rawDescriptions: unknown[] = [];
+      if (Array.isArray(input.descriptions)) {
+        rawDescriptions = input.descriptions;
+      } else if (typeof input.descriptions === 'string') {
+        rawDescriptions = input.descriptions.split('|').map((s: string) => s.trim()).filter(Boolean);
+      }
       const descriptions = rawDescriptions.map((d: unknown) => {
-        if (typeof d === 'string') return { text: d };
+        if (typeof d === 'string') return { text: d.trim() };
         if (typeof d === 'object' && d !== null) {
           const obj = d as Record<string, unknown>;
-          return { text: String(obj.text || obj.description || '') };
+          return { text: String(obj.text || obj.description || obj.value || '').trim() };
         }
-        return { text: String(d) };
+        return { text: String(d).trim() };
       }).filter((d) => d.text.length > 0);
 
       const finalUrls = Array.isArray(input.final_urls)
         ? input.final_urls.map((u: unknown) => String(u)).filter(Boolean)
         : typeof input.final_urls === 'string' ? [input.final_urls] : [];
 
-      // Validate via QA
+      logger.info('create_ad input', {
+        ad_group_id: input.ad_group_id,
+        headlines_count: headlines.length,
+        descriptions_count: descriptions.length,
+        headlines_sample: headlines.slice(0, 3).map((h) => `"${h.text}" (${h.text.length} chars)`),
+      });
+
+      // Validate minimum requirements before QA
+      if (headlines.length < 3) {
+        return { result: `Need at least 3 headlines, got ${headlines.length}. Send headlines as an array of objects: [{"text": "Headline 1"}, {"text": "Headline 2"}, {"text": "Headline 3"}]` };
+      }
+      if (descriptions.length < 2) {
+        return { result: `Need at least 2 descriptions, got ${descriptions.length}. Send descriptions as an array of objects: [{"text": "Description 1"}, {"text": "Description 2"}]` };
+      }
+
+      // Auto-truncate headlines over 30 chars (don't reject — fix it)
+      for (const h of headlines) {
+        if (h.text.length > 30) {
+          logger.warn(`Auto-truncating headline: "${h.text}" (${h.text.length} chars)`);
+          h.text = h.text.slice(0, 30).trim();
+        }
+      }
+      // Auto-truncate descriptions over 90 chars
+      for (const d of descriptions) {
+        if (d.text.length > 90) {
+          logger.warn(`Auto-truncating description: "${d.text}" (${d.text.length} chars)`);
+          d.text = d.text.slice(0, 90).trim();
+        }
+      }
+
+      // Remove duplicates
+      const seenH = new Set<string>();
+      const dedupedHeadlines = headlines.filter((h) => {
+        const key = h.text.toLowerCase();
+        if (seenH.has(key)) return false;
+        seenH.add(key);
+        return true;
+      });
+      const seenD = new Set<string>();
+      const dedupedDescriptions = descriptions.filter((d) => {
+        const key = d.text.toLowerCase();
+        if (seenD.has(key)) return false;
+        seenD.add(key);
+        return true;
+      });
+
+      // Validate via QA (after auto-fixes)
       const qaResult = qaSentinel.validateAdCopySync({
-        headlines,
-        descriptions,
+        headlines: dedupedHeadlines,
+        descriptions: dedupedDescriptions,
         final_urls: finalUrls,
         path1: input.path1 as string,
         path2: input.path2 as string,
       });
 
       if (!qaResult.passed) {
-        const issues = qaResult.errors.map((e) => `${e.field}: ${e.message}`).join('; ');
-        return { result: `QA validation failed: ${issues}. Please fix and try again.` };
+        const issues = qaResult.errors.map((e) => `${e.field}: ${e.message}${e.suggestion ? ` → ${e.suggestion}` : ''}`).join('; ');
+        return { result: `QA failed: ${issues}` };
       }
 
       const { data: ad, error } = await supabase
@@ -834,8 +891,8 @@ export async function executeTool(
         .insert({
           ad_group_id: input.ad_group_id as string,
           ad_type: 'RESPONSIVE_SEARCH',
-          headlines,
-          descriptions,
+          headlines: dedupedHeadlines,
+          descriptions: dedupedDescriptions,
           final_urls: finalUrls,
           path1: (input.path1 as string) || null,
           path2: (input.path2 as string) || null,
@@ -844,14 +901,17 @@ export async function executeTool(
         .select()
         .single();
 
-      if (error) return { result: `Error creating ad: ${error.message}` };
+      if (error) {
+        logger.error('create_ad DB error', { error: error.message, code: error.code, details: error.details });
+        return { result: `Error creating ad: ${error.message}` };
+      }
 
       const warnings = qaResult.warnings.length > 0
         ? ` Warnings: ${qaResult.warnings.map((w) => w.message).join('; ')}`
         : '';
 
       return {
-        result: `Ad created with ${headlines.length} headlines and ${descriptions.length} descriptions. QA passed.${warnings}`,
+        result: `Ad created with ${dedupedHeadlines.length} headlines and ${dedupedDescriptions.length} descriptions.${warnings}`,
         data: { ad_id: ad.id },
       };
     }

@@ -111,10 +111,21 @@ export class GoogleAdsClient {
       try {
         const errorBody = JSON.parse(responseText);
         errorMsg = this.extractErrorMessage(errorBody);
+        // Include field path details if available
+        const details = errorBody?.error?.details;
+        if (details) {
+          const fieldErrors = details.flatMap((d: Record<string, unknown>) =>
+            ((d as { errors?: Array<{ message?: string; location?: { fieldPathElements?: Array<{ fieldName?: string }> } }> }).errors || []).map((e) => {
+              const field = e.location?.fieldPathElements?.map((f) => f.fieldName).join('.') || '';
+              return field ? `${field}: ${e.message}` : e.message;
+            })
+          ).filter(Boolean);
+          if (fieldErrors.length > 0) errorMsg = fieldErrors.join('; ');
+        }
       } catch {
         errorMsg = responseText.slice(0, 500) || `HTTP ${response.status} ${response.statusText}`;
       }
-      logger.error(`Mutate failed for ${entityType}`, { status: response.status, error: errorMsg });
+      logger.error(`Mutate failed for ${entityType}`, { status: response.status, error: errorMsg, body: responseText.slice(0, 1000) });
       throw new Error(`Mutate failed (${response.status}): ${errorMsg}`);
     }
 
@@ -204,9 +215,10 @@ export class GoogleAdsClient {
     const budgetResults = await this.mutate('campaignBudgets', [
       {
         create: {
-          name: `${campaign.name} Budget`,
+          name: `${campaign.name} Budget - ${Date.now()}`,
           amountMicros: campaign.budget_micros.toString(),
           deliveryMethod: 'STANDARD',
+          type: 'STANDARD',
         },
       },
     ]);

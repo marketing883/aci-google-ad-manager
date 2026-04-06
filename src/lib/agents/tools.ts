@@ -4,7 +4,7 @@ import { createLogger } from '../utils/logger';
 import { comprehensiveKeywordResearch, getCompetitors, getRelatedKeywords, type ComprehensiveKeywordData } from '../dataforseo';
 import { searchImages } from '../unsplash';
 import { createGoogleAdsClient } from '../google-ads/client';
-import { syncPerformanceData, rePushAds } from '../google-ads/sync';
+import { syncPerformanceData, rePushAds, importCampaignsFromGoogle } from '../google-ads/sync';
 import { qaSentinel } from './qa-sentinel';
 
 const logger = createLogger('Tools');
@@ -56,7 +56,8 @@ export type ToolName =
   | 'sync_google_performance'
   | 'push_campaign_to_google'
   | 'toggle_campaign_status'
-  | 'check_google_ads_status';
+  | 'check_google_ads_status'
+  | 'import_google_campaigns';
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -494,6 +495,15 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       properties: {
         campaign_id: { type: 'string', description: 'Optional — check a specific campaign. If omitted, shows all campaigns.' },
       },
+      required: [],
+    },
+  },
+  {
+    name: 'import_google_campaigns',
+    description: 'Import existing campaigns from Google Ads into the local database. Use when the user has campaigns already running on Google that aren\'t in the system yet. Only imports campaigns that don\'t already exist locally.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
       required: [],
     },
   },
@@ -1488,6 +1498,19 @@ export async function executeTool(
       }
     }
 
+    // ---- IMPORT GOOGLE CAMPAIGNS ----
+    case 'import_google_campaigns': {
+      try {
+        const imported = await importCampaignsFromGoogle();
+        if (imported === 0) {
+          return { result: 'No new campaigns to import. All Google Ads campaigns are already in the local database.' };
+        }
+        return { result: `Imported ${imported} campaigns from Google Ads. Use check_google_ads_status to see them.` };
+      } catch (e) {
+        return { result: `Import failed: ${(e as Error).message}. Check Google Ads connection.` };
+      }
+    }
+
     // ---- CHECK GOOGLE ADS STATUS ----
     case 'check_google_ads_status': {
       // Check connection
@@ -1737,7 +1760,7 @@ export type PipelineStage = 'gather' | 'research' | 'strategy' | 'build' | 'pres
 // Tool groups for intent-based selection
 export const TOOL_GROUPS: Record<string, ToolName[]> = {
   campaign_create: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'get_company_context', 'push_campaign_to_google'],
-  campaign_read: ['get_campaign_performance', 'validate_campaign', 'check_google_ads_status'],
+  campaign_read: ['get_campaign_performance', 'validate_campaign', 'check_google_ads_status', 'import_google_campaigns'],
   campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign', 'push_campaign_to_google', 'toggle_campaign_status'],
   research: ['research_keywords', 'analyze_competitors', 'get_company_context'],
   analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities', 'sync_google_performance'],

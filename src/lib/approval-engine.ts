@@ -77,9 +77,20 @@ export class ApprovalEngine {
 
     logger.info(`Approved: ${id}`);
 
-    // Auto-apply: try to push to Google Ads
+    // Auto-apply to Google Ads — only if explicitly requested
+    // Disabled by default: Basic API access may not support all mutations,
+    // and the sync function needs testing before auto-pushing.
+    // Users can manually push via the "Apply" button when ready.
     if (autoApply) {
-      return this.apply(id);
+      try {
+        return await this.apply(id);
+      } catch (applyError) {
+        // Don't revert approval if push fails — stay approved, log the error
+        logger.warn(`Auto-apply failed for ${id}, staying approved`, {
+          error: (applyError as Error).message,
+        });
+        return data;
+      }
     }
 
     return data;

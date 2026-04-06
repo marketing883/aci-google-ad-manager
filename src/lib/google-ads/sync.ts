@@ -427,8 +427,8 @@ async function handlePushFullCampaign(
               headlines: ad.headlines,
               descriptions: ad.descriptions,
               final_urls: ad.final_urls,
-              path1: ad.path1,
-              path2: ad.path2,
+              ...(ad.path1 ? { path1: ad.path1 } : {}),
+              ...(ad.path2 ? { path2: ad.path2 } : {}),
             });
             await supabase.from('ads').update({ status: 'active', last_synced_at: new Date().toISOString() }).eq('id', ad.id);
           } catch (adErr) {

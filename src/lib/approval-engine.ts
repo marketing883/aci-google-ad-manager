@@ -58,7 +58,7 @@ export class ApprovalEngine {
   /**
    * Approve an item and optionally apply it
    */
-  async approve(id: string, notes?: string, autoApply = false): Promise<ApprovalQueueItem> {
+  async approve(id: string, notes?: string, autoApply = true): Promise<ApprovalQueueItem> {
     const item = await this.getItem(id);
     this.validateTransition(item.status, 'approved');
 

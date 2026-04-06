@@ -54,7 +54,8 @@ export type ToolName =
   | 'manage_report_schedules'
   | 'get_company_context'
   | 'sync_google_performance'
-  | 'push_campaign_to_google';
+  | 'push_campaign_to_google'
+  | 'toggle_campaign_status';
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -470,6 +471,18 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         action: { type: 'string', enum: ['full_push', 'push_ads_only'], description: 'full_push for first-time push, push_ads_only to update ads on existing campaign' },
       },
       required: ['campaign_id', 'action'],
+    },
+  },
+  {
+    name: 'toggle_campaign_status',
+    description: 'Enable or pause a campaign on Google Ads. Use this when the user wants to go live, pause a running campaign, or resume a paused one. The campaign must already be on Google Ads (pushed).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        campaign_id: { type: 'string', description: 'UUID of the local campaign' },
+        status: { type: 'string', enum: ['enable', 'pause'], description: 'enable to go live, pause to stop' },
+      },
+      required: ['campaign_id', 'status'],
     },
   },
 ];
@@ -1463,6 +1476,53 @@ export async function executeTool(
       }
     }
 
+    // ---- TOGGLE CAMPAIGN STATUS ----
+    case 'toggle_campaign_status': {
+      const campaignId = input.campaign_id as string;
+      const newStatus = input.status as string;
+
+      if (!campaignId) return { result: 'campaign_id is required.' };
+
+      const { data: camp } = await supabase
+        .from('campaigns')
+        .select('id, name, google_campaign_id, status')
+        .eq('id', campaignId)
+        .single();
+
+      if (!camp) return { result: `Campaign ${campaignId} not found.` };
+      if (!camp.google_campaign_id) {
+        return { result: `Campaign "${camp.name}" is not on Google Ads yet. Push it first with push_campaign_to_google.` };
+      }
+
+      try {
+        const client = await createGoogleAdsClient();
+        if (!client) return { result: 'No Google Ads client available. Check connection in Settings.' };
+
+        const { data: account } = await supabase
+          .from('google_ads_accounts')
+          .select('customer_id')
+          .eq('is_active', true)
+          .single();
+
+        if (!account?.customer_id) return { result: 'No active Google Ads account.' };
+
+        const resourceName = `customers/${account.customer_id}/campaigns/${camp.google_campaign_id}`;
+        const googleStatus = newStatus === 'enable' ? 'ENABLED' : 'PAUSED';
+
+        await client.updateCampaignStatus(resourceName, googleStatus as 'ENABLED' | 'PAUSED');
+
+        // Update local status
+        const localStatus = newStatus === 'enable' ? 'active' : 'paused';
+        await supabase.from('campaigns').update({ status: localStatus }).eq('id', campaignId);
+
+        return {
+          result: `Campaign "${camp.name}" is now ${googleStatus} on Google Ads.`,
+        };
+      } catch (e) {
+        return { result: `Failed to ${newStatus} campaign: ${(e as Error).message}` };
+      }
+    }
+
     // ---- PUSH CAMPAIGN TO GOOGLE ----
     case 'push_campaign_to_google': {
       const campaignId = input.campaign_id as string;
@@ -1602,7 +1662,7 @@ export type PipelineStage = 'gather' | 'research' | 'strategy' | 'build' | 'pres
 export const TOOL_GROUPS: Record<string, ToolName[]> = {
   campaign_create: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'get_company_context', 'push_campaign_to_google'],
   campaign_read: ['get_campaign_performance', 'validate_campaign'],
-  campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign', 'push_campaign_to_google'],
+  campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign', 'push_campaign_to_google', 'toggle_campaign_status'],
   research: ['research_keywords', 'analyze_competitors', 'get_company_context'],
   analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities', 'sync_google_performance'],
   reports: ['send_report', 'schedule_report', 'manage_report_schedules'],

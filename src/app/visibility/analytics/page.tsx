@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2, Globe, Smartphone, Monitor, Target } from 'lucide-react';
 
@@ -11,6 +11,9 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [days, setDays] = useState(30);
+
+  // Auto-load overview on mount
+  useEffect(() => { fetchReport('overview'); }, []);
 
   async function fetchReport(type: ReportType) {
     setLoading(true);

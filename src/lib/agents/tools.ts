@@ -3,7 +3,8 @@ import { createAdminClient } from '../supabase-server';
 import { createLogger } from '../utils/logger';
 import { comprehensiveKeywordResearch, getCompetitors, getRelatedKeywords, getSerpAdvanced, type ComprehensiveKeywordData } from '../dataforseo';
 import { checkLlmVisibility } from '../llm-visibility';
-import { scoreOrganic, scoreAiOverview, scorePaid, scoreLlm, calculateOverallScore, selectRecommendations } from '../visibility-recommendations';
+import { scoreOrganic, scoreAiOverview, scorePaid, scoreLlm, scoreWebsiteHealth, calculateOverallScore, selectRecommendations, THRESHOLDS } from '../visibility-recommendations';
+import { getTrafficOverview, getLandingPagePerformance, getAcquisitionChannels, getAdTrafficBehavior, getDeviceBreakdown, getConversionEvents } from '../google-analytics/client';
 import { searchImages } from '../unsplash';
 import { createGoogleAdsClient } from '../google-ads/client';
 import { syncPerformanceData, rePushAds, importCampaignsFromGoogle } from '../google-ads/sync';
@@ -61,7 +62,9 @@ export type ToolName =
   | 'check_google_ads_status'
   | 'import_google_campaigns'
   | 'get_google_ads_details'
-  | 'brand_visibility_report';
+  | 'brand_visibility_report'
+  | 'get_analytics_intelligence'
+  | 'get_website_health';
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -545,6 +548,30 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         include_llm_check: { type: 'boolean', description: 'Check LLM (ChatGPT) visibility. Adds ~$0.10 cost. Default: true' },
       },
       required: ['brand_name', 'domain', 'target_keywords'],
+    },
+  },
+  // ---- ANALYTICS INTELLIGENCE ----
+  {
+    name: 'get_analytics_intelligence',
+    description: 'Pull website analytics from Google Analytics 4 and return analysis with flagged issues. Shows traffic, landing page performance, ad click behavior, conversions, or device breakdown. All analysis is data-driven — scores and flags from code, not AI opinion.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        report_type: { type: 'string', enum: ['overview', 'landing_pages', 'ad_traffic', 'conversions', 'devices'], description: 'What to analyze' },
+        days: { type: 'number', description: 'Lookback period in days (default 30)' },
+      },
+      required: ['report_type'],
+    },
+  },
+  {
+    name: 'get_website_health',
+    description: 'Quick website health check using Google Analytics 4. Returns overall health score, traffic trend, top/worst landing pages, conversion rate, and mobile vs desktop performance. No inputs needed — reads GA4 property from settings automatically.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        days: { type: 'number', description: 'Lookback period in days (default 30)' },
+      },
+      required: [],
     },
   },
 ];
@@ -1633,6 +1660,174 @@ export async function executeTool(
       }
     }
 
+    // ---- GET ANALYTICS INTELLIGENCE ----
+    case 'get_analytics_intelligence': {
+      const reportType = input.report_type as string;
+      const days = Math.min(Math.max((input.days as number) || 30, 1), 90);
+
+      try {
+        const lines: string[] = [];
+
+        if (reportType === 'overview') {
+          const traffic = await getTrafficOverview(days);
+          if (!traffic) return { result: 'No GA4 data available. Set GA4 property ID in Settings and ensure Google Analytics is connected.' };
+
+          lines.push(`## Traffic Overview (last ${days} days)\n`);
+          lines.push(`| Metric | Value |`);
+          lines.push(`|--------|-------|`);
+          lines.push(`| Sessions | ${traffic.sessions.toLocaleString()} |`);
+          lines.push(`| Users | ${traffic.users.toLocaleString()} |`);
+          lines.push(`| New Users | ${traffic.new_users.toLocaleString()} |`);
+          lines.push(`| Pageviews | ${traffic.pageviews.toLocaleString()} |`);
+          lines.push(`| Bounce Rate | ${(traffic.bounce_rate * 100).toFixed(1)}% |`);
+          lines.push(`| Avg Session Duration | ${traffic.avg_session_duration.toFixed(0)}s |`);
+          lines.push(`| Engagement Rate | ${(traffic.engagement_rate * 100).toFixed(1)}% |`);
+
+          // Flag issues
+          if (traffic.bounce_rate >= THRESHOLDS.bounce_rate.warning) {
+            lines.push(`\n**Flag:** Bounce rate ${(traffic.bounce_rate * 100).toFixed(1)}% exceeds ${(THRESHOLDS.bounce_rate.warning * 100)}% threshold.`);
+          }
+
+        } else if (reportType === 'landing_pages') {
+          const pages = await getLandingPagePerformance(days);
+          if (pages.length === 0) return { result: 'No landing page data available.' };
+
+          lines.push(`## Landing Page Performance (last ${days} days)\n`);
+          lines.push('| Page | Sessions | Bounce | Duration | Conv | Conv Rate | Grade |');
+          lines.push('|------|----------|--------|----------|------|-----------|-------|');
+          for (const p of pages.slice(0, 15)) {
+            const grade = p.conversion_rate >= 0.05 ? 'A' : p.conversion_rate >= 0.03 ? 'B' : p.conversion_rate >= 0.01 ? 'C' : p.sessions > 50 ? 'F' : '-';
+            lines.push(`| ${p.page} | ${p.sessions} | ${(p.bounce_rate * 100).toFixed(0)}% | ${p.avg_duration.toFixed(0)}s | ${p.conversions} | ${(p.conversion_rate * 100).toFixed(1)}% | ${grade} |`);
+          }
+
+          // Flag worst performers
+          const bad = pages.filter((p) => p.sessions >= 50 && p.conversion_rate < THRESHOLDS.conversion_rate.poor);
+          if (bad.length > 0) {
+            lines.push(`\n**Flagged:** ${bad.length} pages with 50+ sessions and conversion rate below ${(THRESHOLDS.conversion_rate.poor * 100)}%:`);
+            for (const p of bad.slice(0, 3)) {
+              lines.push(`- ${p.page}: ${p.sessions} sessions, ${(p.conversion_rate * 100).toFixed(1)}% conversion, ${(p.bounce_rate * 100).toFixed(0)}% bounce`);
+            }
+          }
+
+        } else if (reportType === 'ad_traffic') {
+          const adPages = await getAdTrafficBehavior(days);
+          if (adPages.length === 0) return { result: 'No Google Ads traffic data in GA4. Ensure UTM tracking is set up and ads are running.' };
+
+          lines.push(`## Ad Click Behavior (last ${days} days)\n`);
+          lines.push('Showing what happens AFTER someone clicks your Google Ad:\n');
+          lines.push('| Landing Page | Sessions | Bounce | Duration | Conversions | Conv Rate |');
+          lines.push('|-------------|----------|--------|----------|-------------|-----------|');
+          for (const p of adPages.slice(0, 15)) {
+            lines.push(`| ${p.page} | ${p.sessions} | ${(p.bounce_rate * 100).toFixed(0)}% | ${p.avg_duration.toFixed(0)}s | ${p.conversions} | ${(p.conversion_rate * 100).toFixed(1)}% |`);
+          }
+
+        } else if (reportType === 'conversions') {
+          const events = await getConversionEvents(days);
+          const channels = await getAcquisitionChannels(days);
+
+          lines.push(`## Conversion Analysis (last ${days} days)\n`);
+
+          if (events.length > 0) {
+            lines.push('**Key Events:**');
+            lines.push('| Event | Count |');
+            lines.push('|-------|-------|');
+            for (const e of events) lines.push(`| ${e.event_name} | ${e.count} |`);
+          }
+
+          if (channels.length > 0) {
+            lines.push('\n**Conversions by Channel:**');
+            lines.push('| Source / Medium | Sessions | Conversions | Bounce |');
+            lines.push('|----------------|----------|-------------|--------|');
+            for (const c of channels.slice(0, 10)) {
+              lines.push(`| ${c.source} / ${c.medium} | ${c.sessions} | ${c.conversions} | ${(c.bounce_rate * 100).toFixed(0)}% |`);
+            }
+          }
+
+        } else if (reportType === 'devices') {
+          const devices = await getDeviceBreakdown(days);
+          if (devices.length === 0) return { result: 'No device data available.' };
+
+          lines.push(`## Device Performance (last ${days} days)\n`);
+          lines.push('| Device | Sessions | Users | Conversions | Conv Rate | Bounce |');
+          lines.push('|--------|----------|-------|-------------|-----------|--------|');
+          for (const d of devices) {
+            lines.push(`| ${d.device} | ${d.sessions} | ${d.users} | ${d.conversions} | ${(d.conversion_rate * 100).toFixed(1)}% | ${(d.bounce_rate * 100).toFixed(0)}% |`);
+          }
+
+          const mobile = devices.find((d) => d.device === 'mobile');
+          const desktop = devices.find((d) => d.device === 'desktop');
+          if (mobile && desktop && desktop.conversion_rate > 0) {
+            const gap = desktop.conversion_rate / (mobile.conversion_rate || 0.001);
+            if (gap >= THRESHOLDS.mobile_gap.warning) {
+              lines.push(`\n**Flag:** Mobile converts ${gap.toFixed(1)}x worse than desktop. Mobile: ${(mobile.conversion_rate * 100).toFixed(1)}%, Desktop: ${(desktop.conversion_rate * 100).toFixed(1)}%.`);
+            }
+          }
+
+        } else {
+          return { result: 'Invalid report_type. Use: overview, landing_pages, ad_traffic, conversions, devices.' };
+        }
+
+        return { result: lines.join('\n') };
+      } catch (e) {
+        return { result: `Analytics failed: ${(e as Error).message}. Check GA4 connection.` };
+      }
+    }
+
+    // ---- GET WEBSITE HEALTH ----
+    case 'get_website_health': {
+      const days = Math.min(Math.max((input.days as number) || 30, 1), 90);
+
+      try {
+        const [traffic, pages, devices] = await Promise.all([
+          getTrafficOverview(days),
+          getLandingPagePerformance(days, 10),
+          getDeviceBreakdown(days),
+        ]);
+
+        if (!traffic) return { result: 'No GA4 data. Set GA4 property ID in Settings.' };
+
+        // Score website health (deterministic)
+        const health = scoreWebsiteHealth(traffic, pages, devices);
+        const recommendations = selectRecommendations(health.flags);
+
+        const lines: string[] = [
+          `## Website Health Score: ${health.score}/100\n`,
+          `**Traffic:** ${traffic.sessions.toLocaleString()} sessions, ${traffic.users.toLocaleString()} users (last ${days} days)`,
+          `**Bounce Rate:** ${(traffic.bounce_rate * 100).toFixed(1)}%`,
+          `**Engagement:** ${(traffic.engagement_rate * 100).toFixed(1)}%`,
+        ];
+
+        // Top/worst pages
+        if (pages.length > 0) {
+          const best = pages.filter((p) => p.sessions >= 30).sort((a, b) => b.conversion_rate - a.conversion_rate)[0];
+          const worst = pages.filter((p) => p.sessions >= 30).sort((a, b) => a.conversion_rate - b.conversion_rate)[0];
+          if (best) lines.push(`\n**Best page:** ${best.page} — ${(best.conversion_rate * 100).toFixed(1)}% conversion (${best.sessions} sessions)`);
+          if (worst && worst !== best) lines.push(`**Worst page:** ${worst.page} — ${(worst.conversion_rate * 100).toFixed(1)}% conversion (${worst.sessions} sessions)`);
+        }
+
+        // Device split
+        const mobile = devices.find((d) => d.device === 'mobile');
+        const desktop = devices.find((d) => d.device === 'desktop');
+        if (mobile && desktop) {
+          lines.push(`\n**Desktop:** ${(desktop.conversion_rate * 100).toFixed(1)}% conversion | **Mobile:** ${(mobile.conversion_rate * 100).toFixed(1)}% conversion`);
+        }
+
+        // Issues found
+        if (recommendations.length > 0) {
+          lines.push(`\n### Issues Found (${recommendations.length}):`);
+          for (const r of recommendations.slice(0, 5)) {
+            lines.push(`- **${r.recommendation.title}:** ${r.recommendation.action}`);
+          }
+        } else {
+          lines.push('\nNo major issues detected.');
+        }
+
+        return { result: lines.join('\n'), data: { score: health.score, flags: health.flags.length } };
+      } catch (e) {
+        return { result: `Health check failed: ${(e as Error).message}` };
+      }
+    }
+
     // ---- BRAND VISIBILITY REPORT ----
     case 'brand_visibility_report': {
       const brandName = input.brand_name as string;
@@ -2078,7 +2273,7 @@ export const TOOL_GROUPS: Record<string, ToolName[]> = {
   campaign_read: ['get_campaign_performance', 'validate_campaign', 'check_google_ads_status', 'import_google_campaigns'],
   campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign', 'push_campaign_to_google', 'toggle_campaign_status'],
   research: ['research_keywords', 'analyze_competitors', 'get_company_context', 'brand_visibility_report'],
-  analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities', 'sync_google_performance', 'get_google_ads_details'],
+  analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities', 'sync_google_performance', 'get_google_ads_details', 'get_analytics_intelligence', 'get_website_health'],
   reports: ['send_report', 'schedule_report', 'manage_report_schedules'],
   interaction: ['ask_user_questions'],
 };

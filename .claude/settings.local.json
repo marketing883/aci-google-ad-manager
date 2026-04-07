@@ -49,7 +49,8 @@
       "Bash(curl -s \"https://iatbuhtqffjcjvejrfxm.supabase.co/rest/v1/campaigns?select=id,name,status,google_campaign_id,last_synced_at&id=eq.889b4b32-e4e2-48c6-bd29-318a70569cff\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdGJ1aHRxZmZqY2p2ZWpyZnhtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA2MTYyMiwiZXhwIjoyMDkwNjM3NjIyfQ.Ef2tRpc3uR1ESljgNswVuiEUdi4qULO1WTploesKNEM\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdGJ1aHRxZmZqY2p2ZWpyZnhtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA2MTYyMiwiZXhwIjoyMDkwNjM3NjIyfQ.Ef2tRpc3uR1ESljgNswVuiEUdi4qULO1WTploesKNEM\")",
       "Bash(curl -s -X POST \"https://legendary-computing-machine-g479gx5qgppc5v4q-3000.app.github.dev/api/campaigns/889b4b32-e4e2-48c6-bd29-318a70569cff/sync?action=push_ads\" -H \"Content-Type: application/json\")",
       "Bash(curl -s -X POST \"http://localhost:3000/api/campaigns/889b4b32-e4e2-48c6-bd29-318a70569cff/sync?action=push_ads\" -H \"Content-Type: application/json\")",
-      "Bash(grep -v \"//\")"
+      "Bash(grep -v \"//\")",
+      "Bash(curl -s -X POST https://iatbuhtqffjcjvejrfxm.supabase.co/rest/v1/rpc/exec_sql -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdGJ1aHRxZmZqY2p2ZWpyZnhtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA2MTYyMiwiZXhwIjoyMDkwNjM3NjIyfQ.Ef2tRpc3uR1ESljgNswVuiEUdi4qULO1WTploesKNEM' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdGJ1aHRxZmZqY2p2ZWpyZnhtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA2MTYyMiwiZXhwIjoyMDkwNjM3NjIyfQ.Ef2tRpc3uR1ESljgNswVuiEUdi4qULO1WTploesKNEM' -H 'Content-Type: application/json' -d '{\"query\": \"__CMDSUB_OUTPUT__')"
     ]
   }
 }

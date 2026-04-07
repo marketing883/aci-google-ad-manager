@@ -1703,9 +1703,13 @@ export async function executeTool(
           // Flag worst performers
           const bad = pages.filter((p) => p.sessions >= 50 && p.conversion_rate < THRESHOLDS.conversion_rate.poor);
           if (bad.length > 0) {
-            lines.push(`\n**Flagged:** ${bad.length} pages with 50+ sessions and conversion rate below ${(THRESHOLDS.conversion_rate.poor * 100)}%:`);
-            for (const p of bad.slice(0, 3)) {
-              lines.push(`- ${p.page}: ${p.sessions} sessions, ${(p.conversion_rate * 100).toFixed(1)}% conversion, ${(p.bounce_rate * 100).toFixed(0)}% bounce`);
+            lines.push(`\n### Underperforming Pages`);
+            lines.push(`These ${bad.length} pages get significant traffic (50+ sessions) but convert below ${(THRESHOLDS.conversion_rate.poor * 100)}%. They're receiving visitors but failing to turn them into leads or customers. Focus on improving these first — they already have the traffic.\n`);
+            lines.push('| Page | Sessions | Conv Rate | Bounce | Issue |');
+            lines.push('|------|----------|-----------|--------|-------|');
+            for (const p of bad.slice(0, 5)) {
+              const issue = p.bounce_rate >= 0.6 ? 'High bounce — visitors leave immediately' : p.avg_duration < 15 ? 'Very short visits — content not engaging' : 'Traffic but no conversions — review CTA and form';
+              lines.push(`| ${p.page} | ${p.sessions} | ${(p.conversion_rate * 100).toFixed(1)}% | ${(p.bounce_rate * 100).toFixed(0)}% | ${issue} |`);
             }
           }
 

@@ -153,16 +153,17 @@ export async function checkLlmVisibility(
   keywords: string[],
 ): Promise<LlmVisibilityResult[]> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const results: LlmVisibilityResult[] = [];
+  const capped = keywords.slice(0, 10);
 
-  for (const keyword of keywords.slice(0, 15)) { // Cap at 15 to control cost
+  // Run all LLM checks in parallel for speed
+  const promises = capped.map(async (keyword): Promise<LlmVisibilityResult> => {
     const question = keywordToQuestion(keyword);
 
     try {
       const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         max_tokens: 500,
-        temperature: 0.3, // Low temp for more consistent results
+        temperature: 0.3,
         messages: [
           {
             role: 'system',
@@ -176,30 +177,26 @@ export async function checkLlmVisibility(
       const mention = parseBrandMention(text, brandName, domain);
       const competitors = extractCompetitorsMentioned(text, brandName);
 
-      results.push({
-        keyword,
-        question,
+      logger.info(`LLM check: "${keyword}" → ${mention.mentioned ? `Mentioned (#${mention.position})` : 'Not mentioned'}`, {
+        competitors: competitors.length,
+      });
+
+      return {
+        keyword, question,
         mentioned: mention.mentioned,
         position: mention.position,
         context: mention.context,
         competitors_mentioned: competitors,
-      });
-
-      logger.info(`LLM check: "${keyword}" → ${mention.mentioned ? `Mentioned (#${mention.position})` : 'Not mentioned'}`, {
-        competitors: competitors.length,
-      });
+      };
     } catch (error) {
       logger.error(`LLM check failed for "${keyword}"`, { error: (error as Error).message });
-      results.push({
-        keyword,
-        question,
-        mentioned: false,
-        position: null,
-        context: null,
+      return {
+        keyword, question,
+        mentioned: false, position: null, context: null,
         competitors_mentioned: [],
-      });
+      };
     }
-  }
+  });
 
-  return results;
+  return Promise.all(promises);
 }

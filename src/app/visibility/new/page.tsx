@@ -61,8 +61,10 @@ export default function NewReportPage() {
     }
   }
 
-  const keywordCount = keywords.split(',').map((k) => k.trim()).filter(Boolean).length;
-  const estCost = (keywordCount * 0.004 + (includeLlm ? keywordCount * 0.01 : 0)).toFixed(2);
+  const keywordList = keywords.split(',').map((k) => k.trim()).filter(Boolean);
+  const keywordCount = keywordList.length;
+  const effectiveCount = Math.min(keywordCount, 10);
+  const estCost = (effectiveCount * 0.004 + (includeLlm ? Math.min(keywordCount, 8) * 0.01 : 0)).toFixed(2);
 
   return (
     <div>
@@ -88,7 +90,7 @@ export default function NewReportPage() {
           <div>
             <label className="block text-sm text-gray-400 mb-1">Target Keywords (comma-separated)</label>
             <textarea value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="dynamics 365 consulting, d365 implementation, ERP migration, Microsoft partner" rows={3} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
-            <p className="text-xs text-gray-500 mt-1">{keywordCount} keywords &middot; Est. cost: ${estCost}</p>
+            <p className="text-xs text-gray-500 mt-1">{keywordCount} keywords{keywordCount > 10 ? ` (top 10 will be checked)` : ''} &middot; Est. cost: ${estCost}</p>
           </div>
 
           <div className="flex items-center justify-between">

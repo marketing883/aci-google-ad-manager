@@ -35,6 +35,7 @@ interface AnalyticsSnapshot {
   traffic: { sessions?: number; users?: number; bounce_rate?: number };
   scores: { website_health?: number };
   flags: Array<{ type: string }>;
+  recommendations: Array<{ id: string; title: string; action: string; priority: number }>;
   created_at: string;
 }
 
@@ -91,16 +92,22 @@ export default function VisibilityDashboard() {
   const router = useRouter();
   const [latestReport, setLatestReport] = useState<VisibilityReport | null>(null);
   const [reports, setReports] = useState<VisibilityReport[]>([]);
+  const [snapshot, setSnapshot] = useState<AnalyticsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/visibility');
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        setReports(data);
-        setLatestReport(data[0]);
+      const [reportsRes, snapshotRes] = await Promise.all([
+        fetch('/api/visibility').then((r) => r.json()).catch(() => []),
+        fetch('/api/analytics/snapshot').then((r) => r.json()).catch(() => null),
+      ]);
+      if (Array.isArray(reportsRes) && reportsRes.length > 0) {
+        setReports(reportsRes);
+        setLatestReport(reportsRes[0]);
+      }
+      if (snapshotRes && !snapshotRes.empty) {
+        setSnapshot(snapshotRes);
       }
     } catch { /* ignore */ }
     setLoading(false);
@@ -111,6 +118,10 @@ export default function VisibilityDashboard() {
   // Calculate trend from previous report
   const prevReport = reports.length > 1 ? reports[1] : null;
   const overallTrend = latestReport && prevReport ? latestReport.overall_score - prevReport.overall_score : null;
+  const websiteScore = (snapshot?.scores as Record<string, unknown>)?.website_health as number | null ?? null;
+  const trafficData = snapshot?.traffic as { sessions?: number; users?: number; bounce_rate?: number } | null;
+  const snapshotFlags = (snapshot?.flags as Array<{ type: string }>) || [];
+  const snapshotRecs = (snapshot?.recommendations as Array<{ id: string; title: string; action: string; priority: number }>) || [];
 
   return (
     <div>
@@ -170,14 +181,49 @@ export default function VisibilityDashboard() {
         />
       </div>
 
+      {/* Live Analytics Summary (from daily snapshot) */}
+      {snapshot && trafficData && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <p className="text-xs text-gray-500">Website Health</p>
+            <p className={`text-2xl font-bold ${websiteScore && websiteScore >= 60 ? 'text-green-400' : websiteScore && websiteScore >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>{websiteScore ?? '—'}/100</p>
+            <p className="text-[10px] text-gray-600">{snapshotFlags.length} issues found</p>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <p className="text-xs text-gray-500">Sessions (30d)</p>
+            <p className="text-2xl font-bold">{trafficData.sessions?.toLocaleString() ?? '—'}</p>
+            <p className="text-[10px] text-gray-600">{trafficData.users?.toLocaleString() ?? '—'} users</p>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <p className="text-xs text-gray-500">Bounce Rate</p>
+            <p className={`text-2xl font-bold ${trafficData.bounce_rate && trafficData.bounce_rate > 0.5 ? 'text-red-400' : 'text-green-400'}`}>{trafficData.bounce_rate ? `${(trafficData.bounce_rate * 100).toFixed(1)}%` : '—'}</p>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <p className="text-xs text-gray-500">Last Updated</p>
+            <p className="text-sm font-medium text-gray-300">{new Date(snapshot.created_at).toLocaleDateString()}</p>
+            <p className="text-[10px] text-gray-600">{new Date(snapshot.created_at).toLocaleTimeString()}</p>
+          </div>
+        </div>
+      )}
+
       {/* Two-column layout: Recommendations + Quick Links */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         {/* Recommendations */}
         <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-6">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Top Recommendations</h2>
-          {latestReport?.recommendations?.length ? (
+          {(() => {
+            const allRecs = [...(latestReport?.recommendations || []), ...snapshotRecs];
+            // Deduplicate by id
+            const seen = new Set<string>();
+            const uniqueRecs = allRecs.filter((r) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
+            return uniqueRecs;
+          })().length > 0 ? (
             <div className="space-y-3">
-              {latestReport.recommendations.slice(0, 5).map((rec, i) => (
+              {(() => {
+                const allRecs = [...(latestReport?.recommendations || []), ...snapshotRecs];
+                const seen = new Set<string>();
+                return allRecs.filter((r) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
+              })().slice(0, 5).map((rec, i) => (
                 <div key={i} className="flex items-start gap-3 p-3 bg-gray-800/40 rounded-lg">
                   <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
                     rec.priority === 1 ? 'bg-red-600/20 text-red-400' : rec.priority === 2 ? 'bg-yellow-600/20 text-yellow-400' : 'bg-gray-700 text-gray-400'

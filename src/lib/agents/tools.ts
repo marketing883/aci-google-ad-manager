@@ -1842,22 +1842,28 @@ export async function executeTool(
 
       logger.info('Running brand visibility report', { brand: brandName, keywords: keywords.length });
 
-      // Step 1: Run SERP Advanced for each keyword
-      const serpResults = [];
-      for (const kw of keywords.slice(0, 15)) {
-        try {
-          const serp = await getSerpAdvanced(kw);
-          serpResults.push(serp);
-        } catch (e) {
-          logger.warn(`SERP failed for "${kw}"`, { error: (e as Error).message });
-        }
+      // Cap keywords to avoid timeouts (10 max for SERP, 8 for LLM)
+      const serpKeywords = keywords.slice(0, 10);
+      const llmKeywords = keywords.slice(0, 8);
+
+      if (keywords.length > 10) {
+        logger.info(`Capped from ${keywords.length} to 10 keywords to avoid timeout`);
       }
 
-      // Step 2: LLM visibility check (optional)
+      // Step 1: Run SERP Advanced — parallel for speed
+      const serpPromises = serpKeywords.map((kw) =>
+        getSerpAdvanced(kw).catch((e) => {
+          logger.warn(`SERP failed for "${kw}"`, { error: (e as Error).message });
+          return null;
+        }),
+      );
+      const serpResults = (await Promise.all(serpPromises)).filter(Boolean) as Awaited<ReturnType<typeof getSerpAdvanced>>[];
+
+      // Step 2: LLM visibility check (optional) — already runs in parallel internally
       let llmResults: Awaited<ReturnType<typeof checkLlmVisibility>> = [];
       if (includeLlm) {
         try {
-          llmResults = await checkLlmVisibility(brandName, domain, keywords.slice(0, 10));
+          llmResults = await checkLlmVisibility(brandName, domain, llmKeywords);
         } catch (e) {
           logger.warn('LLM visibility check failed', { error: (e as Error).message });
         }

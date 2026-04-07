@@ -5,6 +5,10 @@
       "schedule": "0 */6 * * *"
     },
     {
+      "path": "/api/cron/analytics-snapshot",
+      "schedule": "0 6 * * *"
+    },
+    {
       "path": "/api/cron/run-optimizer",
       "schedule": "0 8 * * *"
     },

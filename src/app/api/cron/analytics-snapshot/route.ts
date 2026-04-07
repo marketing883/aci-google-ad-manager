@@ -11,10 +11,12 @@ import {
 // POST /api/cron/analytics-snapshot
 // Runs daily — pulls GA4 data, scores health, stores snapshot
 export async function POST(request: NextRequest) {
-  // Verify cron secret (skip in dev)
-  const authHeader = request.headers.get('authorization');
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Verify cron secret in production
+  if (process.env.NODE_ENV === 'production' && process.env.CRON_SECRET) {
+    const authHeader = request.headers.get('authorization');
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
   }
 
   try {

@@ -115,13 +115,24 @@ async function getValidAccessToken(): Promise<string | null> {
 
 async function getGA4PropertyId(): Promise<string | null> {
   const supabase = createAdminClient();
-  const { data } = await supabase
+
+  // Check google_ads_accounts first
+  const { data: account } = await supabase
     .from('google_ads_accounts')
     .select('ga4_property_id')
     .eq('is_active', true)
     .single();
 
-  return data?.ga4_property_id || null;
+  if (account?.ga4_property_id) return account.ga4_property_id;
+
+  // Fallback: check settings table
+  const { data: setting } = await supabase
+    .from('settings')
+    .select('value')
+    .eq('key', 'ga4_property_id')
+    .single();
+
+  return (setting?.value as string) || null;
 }
 
 // ============================================================

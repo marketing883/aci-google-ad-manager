@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Zap, MessageSquare, PieChart, Radar,
+  Zap, MessageSquare, PieChart, Radar, Eye,
   CheckSquare, Settings, Activity,
 } from 'lucide-react';
 
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/chat', label: 'Chat', icon: MessageSquare, description: 'Talk to your strategist' },
   { href: '/portfolio', label: 'Portfolio', icon: PieChart, description: 'Campaign health & spend' },
   { href: '/intelligence', label: 'Intelligence', icon: Radar, description: 'Competitor war room' },
+  { href: '/visibility', label: 'Visibility', icon: Eye, description: 'Brand & analytics intel' },
   { href: '/approvals', label: 'Approvals', icon: CheckSquare, description: 'Review AI actions', showBadge: true },
   { href: '/settings', label: 'Settings', icon: Settings, description: 'Configuration' },
 ];

@@ -103,6 +103,19 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Google Analytics Connection */}
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Link2 className="w-5 h-5 text-gray-400" />
+            <h2 className="text-lg font-semibold">Google Analytics 4</h2>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">GA4 Property ID</label>
+            <input type="text" value={(settings.ga4_property_id as string) || ''} onChange={(e) => updateSetting('ga4_property_id', e.target.value)} placeholder="123456789" className="w-64 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p className="text-[10px] text-gray-600 mt-1">Find this in GA4: Admin → Property Settings → Property ID. Just the number, no &quot;properties/&quot; prefix.</p>
+          </div>
+        </div>
+
         {/* Company Profile */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
           <div className="flex items-center gap-3 mb-1">

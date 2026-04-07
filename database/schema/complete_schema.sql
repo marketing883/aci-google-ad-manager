@@ -377,3 +377,49 @@ BEGIN
     );
   END LOOP;
 END $$;
+
+-- ============================================================
+-- Brand Visibility & Analytics Intelligence
+-- ============================================================
+
+CREATE TABLE brand_visibility_reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  brand_name TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  target_keywords TEXT[] NOT NULL,
+  competitor_domains TEXT[] DEFAULT '{}',
+  overall_score INTEGER,
+  organic_score INTEGER,
+  ai_overview_score INTEGER,
+  llm_score INTEGER,
+  paid_score INTEGER,
+  organic_results JSONB DEFAULT '{}',
+  ai_overview_results JSONB DEFAULT '{}',
+  llm_results JSONB DEFAULT '{}',
+  paid_results JSONB DEFAULT '{}',
+  competitor_comparison JSONB DEFAULT '{}',
+  recommendations JSONB DEFAULT '[]',
+  api_cost_cents INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_bvr_domain ON brand_visibility_reports(domain, created_at DESC);
+
+CREATE TABLE analytics_snapshots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  period_start DATE NOT NULL,
+  period_end DATE NOT NULL,
+  traffic JSONB DEFAULT '{}',
+  landing_pages JSONB DEFAULT '[]',
+  acquisition JSONB DEFAULT '{}',
+  conversions JSONB DEFAULT '{}',
+  ad_traffic JSONB DEFAULT '{}',
+  device_split JSONB DEFAULT '{}',
+  flags JSONB DEFAULT '[]',
+  recommendations JSONB DEFAULT '[]',
+  scores JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(period_start, period_end)
+);
+
+CREATE INDEX idx_analytics_period ON analytics_snapshots(period_start DESC);

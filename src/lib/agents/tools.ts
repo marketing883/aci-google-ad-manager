@@ -1,7 +1,9 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { createAdminClient } from '../supabase-server';
 import { createLogger } from '../utils/logger';
-import { comprehensiveKeywordResearch, getCompetitors, getRelatedKeywords, type ComprehensiveKeywordData } from '../dataforseo';
+import { comprehensiveKeywordResearch, getCompetitors, getRelatedKeywords, getSerpAdvanced, type ComprehensiveKeywordData } from '../dataforseo';
+import { checkLlmVisibility } from '../llm-visibility';
+import { scoreOrganic, scoreAiOverview, scorePaid, scoreLlm, calculateOverallScore, selectRecommendations } from '../visibility-recommendations';
 import { searchImages } from '../unsplash';
 import { createGoogleAdsClient } from '../google-ads/client';
 import { syncPerformanceData, rePushAds, importCampaignsFromGoogle } from '../google-ads/sync';
@@ -58,7 +60,8 @@ export type ToolName =
   | 'toggle_campaign_status'
   | 'check_google_ads_status'
   | 'import_google_campaigns'
-  | 'get_google_ads_details';
+  | 'get_google_ads_details'
+  | 'brand_visibility_report';
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -520,6 +523,28 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         days: { type: 'number', description: 'Number of days to look back (default 30)' },
       },
       required: ['campaign_id', 'level'],
+    },
+  },
+  // ---- BRAND VISIBILITY ----
+  {
+    name: 'brand_visibility_report',
+    description: 'Generate a comprehensive brand visibility report showing how a brand appears across Google organic search, AI Overviews, LLM answers (ChatGPT), and paid search. Returns scored report with competitor comparison and prioritized improvement steps. Call get_company_context first to get brand details if you don\'t have them.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        brand_name: { type: 'string', description: 'Brand or company name' },
+        domain: { type: 'string', description: 'Primary domain (e.g., "aciinfotech.com")' },
+        target_keywords: {
+          type: 'array', items: { type: 'string' },
+          description: 'Keywords to check visibility for (5-15 recommended)',
+        },
+        competitor_domains: {
+          type: 'array', items: { type: 'string' },
+          description: 'Optional competitor domains to compare against',
+        },
+        include_llm_check: { type: 'boolean', description: 'Check LLM (ChatGPT) visibility. Adds ~$0.10 cost. Default: true' },
+      },
+      required: ['brand_name', 'domain', 'target_keywords'],
     },
   },
 ];
@@ -1608,6 +1633,186 @@ export async function executeTool(
       }
     }
 
+    // ---- BRAND VISIBILITY REPORT ----
+    case 'brand_visibility_report': {
+      const brandName = input.brand_name as string;
+      const domain = input.domain as string;
+      const keywords = (input.target_keywords as string[]) || [];
+      const competitorDomains = (input.competitor_domains as string[]) || [];
+      const includeLlm = input.include_llm_check !== false;
+
+      if (!brandName || !domain || keywords.length === 0) {
+        return { result: 'brand_name, domain, and target_keywords are required.' };
+      }
+
+      logger.info('Running brand visibility report', { brand: brandName, keywords: keywords.length });
+
+      // Step 1: Run SERP Advanced for each keyword
+      const serpResults = [];
+      for (const kw of keywords.slice(0, 15)) {
+        try {
+          const serp = await getSerpAdvanced(kw);
+          serpResults.push(serp);
+        } catch (e) {
+          logger.warn(`SERP failed for "${kw}"`, { error: (e as Error).message });
+        }
+      }
+
+      // Step 2: LLM visibility check (optional)
+      let llmResults: Awaited<ReturnType<typeof checkLlmVisibility>> = [];
+      if (includeLlm) {
+        try {
+          llmResults = await checkLlmVisibility(brandName, domain, keywords.slice(0, 10));
+        } catch (e) {
+          logger.warn('LLM visibility check failed', { error: (e as Error).message });
+        }
+      }
+
+      // Step 3: Score everything (deterministic code — no LLM)
+      const organicResult = scoreOrganic(serpResults, domain);
+      const aiResult = scoreAiOverview(serpResults, domain);
+      const paidResult = scorePaid(serpResults, domain);
+      const llmResult = scoreLlm(llmResults);
+
+      const overallScore = calculateOverallScore({
+        organic: organicResult.score,
+        ai_overview: aiResult.score,
+        paid: paidResult.score,
+        llm: llmResult.score,
+        website: 50, // Website score needs GA4 — neutral placeholder
+      });
+
+      // Step 4: Select recommendations from catalog (deterministic)
+      const allFlags = [...organicResult.flags, ...aiResult.flags, ...paidResult.flags, ...llmResult.flags];
+      const recommendations = selectRecommendations(allFlags);
+
+      // Step 5: Build competitor comparison
+      const domainBase = domain.replace(/^www\./, '').toLowerCase();
+      const competitorMap = new Map<string, { organic: number; ai_citations: number; paid: number }>();
+      for (const serp of serpResults) {
+        for (const org of serp.organic.slice(0, 5)) {
+          const d = org.domain.toLowerCase();
+          if (d.includes(domainBase)) continue;
+          if (competitorDomains.length > 0 && !competitorDomains.some((cd) => d.includes(cd.toLowerCase()))) continue;
+          if (!competitorMap.has(d)) competitorMap.set(d, { organic: 0, ai_citations: 0, paid: 0 });
+          competitorMap.get(d)!.organic++;
+        }
+        for (const cite of serp.ai_overview_citations) {
+          const d = cite.domain.toLowerCase();
+          if (d.includes(domainBase)) continue;
+          if (!competitorMap.has(d)) competitorMap.set(d, { organic: 0, ai_citations: 0, paid: 0 });
+          competitorMap.get(d)!.ai_citations++;
+        }
+        for (const p of serp.paid) {
+          const d = p.domain.toLowerCase();
+          if (d.includes(domainBase)) continue;
+          if (!competitorMap.has(d)) competitorMap.set(d, { organic: 0, ai_citations: 0, paid: 0 });
+          competitorMap.get(d)!.paid++;
+        }
+      }
+
+      // Step 6: Store in database
+      const costCents = Math.round(serpResults.length * 0.4 + llmResults.length * 1);
+      try {
+        await supabase.from('brand_visibility_reports').insert({
+          brand_name: brandName,
+          domain,
+          target_keywords: keywords,
+          competitor_domains: competitorDomains,
+          overall_score: overallScore,
+          organic_score: organicResult.score,
+          ai_overview_score: aiResult.score,
+          llm_score: llmResult.score,
+          paid_score: paidResult.score,
+          organic_results: serpResults.map((s) => ({
+            keyword: s.keyword,
+            brand_position: s.organic.find((o) => o.domain.toLowerCase().includes(domainBase))?.position || null,
+            top_competitor: s.organic[0]?.domain || null,
+          })),
+          ai_overview_results: serpResults.map((s) => ({
+            keyword: s.keyword,
+            has_overview: s.ai_overview_exists,
+            brand_cited: s.ai_overview_citations.some((c) => c.domain.toLowerCase().includes(domainBase)),
+            citations: s.ai_overview_citations.map((c) => c.domain).slice(0, 5),
+          })),
+          llm_results: llmResults,
+          paid_results: serpResults.map((s) => ({
+            keyword: s.keyword,
+            brand_ad: s.paid.find((p) => p.domain.toLowerCase().includes(domainBase))?.position || null,
+            competitor_ads: s.paid.filter((p) => !p.domain.toLowerCase().includes(domainBase)).map((p) => p.domain).slice(0, 3),
+          })),
+          competitor_comparison: Object.fromEntries(competitorMap),
+          recommendations: recommendations.map((r) => ({ id: r.recommendation.id, title: r.recommendation.title, action: r.recommendation.action, data: r.data, priority: r.priority })),
+          api_cost_cents: costCents,
+        });
+      } catch (e) {
+        logger.warn('Failed to store visibility report', { error: (e as Error).message });
+      }
+
+      // Step 7: Build formatted output for the AI
+      const lines: string[] = [
+        `## Brand Visibility Report — ${brandName}`,
+        `**Overall Score: ${overallScore}/100**\n`,
+      ];
+
+      // Organic
+      lines.push(`### Google Organic (Score: ${organicResult.score}/100)`);
+      lines.push('| Keyword | Your Position | Top Competitor |');
+      lines.push('|---------|--------------|----------------|');
+      for (const serp of serpResults) {
+        const brandPos = serp.organic.find((o) => o.domain.toLowerCase().includes(domainBase))?.position;
+        const topComp = serp.organic.find((o) => !o.domain.toLowerCase().includes(domainBase));
+        lines.push(`| ${serp.keyword} | ${brandPos ? `#${brandPos}` : 'Not found'} | ${topComp ? `${topComp.domain} (#${topComp.position})` : '—'} |`);
+      }
+
+      // AI Overviews
+      lines.push(`\n### AI Overview Citations (Score: ${aiResult.score}/100)`);
+      lines.push('| Keyword | AI Overview? | You Cited? | Who\'s Cited |');
+      lines.push('|---------|-------------|-----------|------------|');
+      for (const serp of serpResults) {
+        if (!serp.ai_overview_exists) {
+          lines.push(`| ${serp.keyword} | No | — | — |`);
+        } else {
+          const cited = serp.ai_overview_citations.some((c) => c.domain.toLowerCase().includes(domainBase));
+          const others = serp.ai_overview_citations.filter((c) => !c.domain.toLowerCase().includes(domainBase)).map((c) => c.domain).slice(0, 3).join(', ');
+          lines.push(`| ${serp.keyword} | Yes | ${cited ? 'Yes' : 'No'} | ${others || '—'} |`);
+        }
+      }
+
+      // LLM Visibility
+      if (llmResults.length > 0) {
+        lines.push(`\n### LLM Visibility (Score: ${llmResult.score}/100)`);
+        lines.push('| Question | Mentioned? | Position | Competitors |');
+        lines.push('|----------|-----------|----------|-------------|');
+        for (const r of llmResults) {
+          lines.push(`| ${r.question} | ${r.mentioned ? 'Yes' : 'No'} | ${r.position ? `#${r.position}` : '—'} | ${r.competitors_mentioned.slice(0, 3).join(', ') || '—'} |`);
+        }
+      }
+
+      // Paid Search
+      lines.push(`\n### Paid Search (Score: ${paidResult.score}/100)`);
+      lines.push('| Keyword | Your Ad | Competitor Ads |');
+      lines.push('|---------|---------|----------------|');
+      for (const serp of serpResults) {
+        const brandAd = serp.paid.find((p) => p.domain.toLowerCase().includes(domainBase));
+        const compAds = serp.paid.filter((p) => !p.domain.toLowerCase().includes(domainBase)).map((p) => p.domain).slice(0, 3).join(', ');
+        lines.push(`| ${serp.keyword} | ${brandAd ? `#${brandAd.position}` : 'Not bidding'} | ${compAds || '—'} |`);
+      }
+
+      // Recommendations
+      if (recommendations.length > 0) {
+        lines.push('\n### Action Plan');
+        for (let i = 0; i < Math.min(recommendations.length, 7); i++) {
+          const r = recommendations[i];
+          lines.push(`${i + 1}. **${r.recommendation.title}** — ${r.recommendation.action}`);
+        }
+      }
+
+      lines.push(`\n*Cost: $${(costCents / 100).toFixed(2)} | ${serpResults.length} keywords checked*`);
+
+      return { result: lines.join('\n'), data: { overall_score: overallScore, organic: organicResult.score, ai_overview: aiResult.score, llm: llmResult.score, paid: paidResult.score } };
+    }
+
     // ---- IMPORT GOOGLE CAMPAIGNS ----
     case 'import_google_campaigns': {
       try {
@@ -1872,7 +2077,7 @@ export const TOOL_GROUPS: Record<string, ToolName[]> = {
   campaign_create: ['create_campaign', 'create_ad_group', 'create_ad', 'build_tracking_urls', 'search_images', 'get_company_context', 'push_campaign_to_google'],
   campaign_read: ['get_campaign_performance', 'validate_campaign', 'check_google_ads_status', 'import_google_campaigns'],
   campaign_edit: ['update_campaign', 'update_ad_group', 'update_ad', 'delete_ad_group', 'delete_ad', 'validate_campaign', 'push_campaign_to_google', 'toggle_campaign_status'],
-  research: ['research_keywords', 'analyze_competitors', 'get_company_context'],
+  research: ['research_keywords', 'analyze_competitors', 'get_company_context', 'brand_visibility_report'],
   analytics: ['analyze_performance', 'find_waste', 'suggest_opportunities', 'sync_google_performance', 'get_google_ads_details'],
   reports: ['send_report', 'schedule_report', 'manage_report_schedules'],
   interaction: ['ask_user_questions'],

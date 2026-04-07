@@ -303,6 +303,8 @@ Always include "interaction". If unclear, include multiple groups.
 "what's on google/status" → ["campaign_read","interaction"]
 "import campaigns" → ["campaign_read","interaction"]
 "keyword/ad group performance" → ["analytics","campaign_read","interaction"]
+"visibility/brand report/how visible" → ["research","analytics","interaction"]
+"website health/analytics/landing pages" → ["analytics","interaction"]
 unclear → ["analytics","campaign_read","interaction"]`,
         messages: [{ role: 'user', content: message }],
       });

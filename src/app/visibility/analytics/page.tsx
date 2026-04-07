@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2, Globe, Smartphone, Monitor, Target } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 type ReportType = 'overview' | 'landing_pages' | 'ad_traffic' | 'conversions' | 'devices';
 
@@ -77,8 +78,8 @@ export default function AnalyticsPage() {
         {loading ? (
           <div className="text-center py-12 text-gray-500"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />Loading analytics...</div>
         ) : data ? (
-          <div className="prose prose-invert prose-sm max-w-none">
-            <pre className="whitespace-pre-wrap text-sm text-gray-300 font-sans leading-relaxed">{data}</pre>
+          <div className="prose prose-invert prose-sm max-w-none [&_table]:w-full [&_table]:text-sm [&_th]:text-left [&_th]:py-2 [&_th]:px-3 [&_th]:text-gray-400 [&_th]:border-b [&_th]:border-gray-700 [&_td]:py-2 [&_td]:px-3 [&_td]:border-b [&_td]:border-gray-800/50 [&_td]:text-gray-300 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-white [&_h2]:mb-4 [&_strong]:text-yellow-400">
+            <ReactMarkdown>{data}</ReactMarkdown>
           </div>
         ) : (
           <div className="text-center py-12">

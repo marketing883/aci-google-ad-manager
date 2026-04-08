@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Search, Loader2 } from 'lucide-react';
 
 export default function NewReportPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [brandName, setBrandName] = useState('');
   const [domain, setDomain] = useState('');
   const [keywords, setKeywords] = useState('');
@@ -14,19 +15,30 @@ export default function NewReportPage() {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
 
-  // Auto-fill from company profile
+  // Auto-fill from URL params (re-run) or company profile
   useEffect(() => {
-    fetch('/api/settings').then((r) => r.json()).then((s) => {
-      if (s.company_profile) {
-        const p = s.company_profile;
-        if (p.company_name) setBrandName(p.company_name);
-        if (p.domain) setDomain(p.domain);
-        if (p.services?.length) {
-          setKeywords(p.services.map((s: { name: string }) => s.name).join(', '));
+    const paramBrand = searchParams.get('brand');
+    const paramDomain = searchParams.get('domain');
+    const paramKeywords = searchParams.get('keywords');
+
+    if (paramBrand) setBrandName(paramBrand);
+    if (paramDomain) setDomain(paramDomain);
+    if (paramKeywords) setKeywords(paramKeywords);
+
+    // Only fill from company profile if no URL params
+    if (!paramBrand) {
+      fetch('/api/settings').then((r) => r.json()).then((s) => {
+        if (s.company_profile) {
+          const p = s.company_profile;
+          if (p.company_name && !paramBrand) setBrandName(p.company_name);
+          if (p.domain && !paramDomain) setDomain(p.domain);
+          if (p.services?.length && !paramKeywords) {
+            setKeywords(p.services.map((svc: { name: string }) => svc.name).join(', '));
+          }
         }
-      }
-    }).catch(() => {});
-  }, []);
+      }).catch(() => {});
+    }
+  }, [searchParams]);
 
   async function runReport() {
     if (!brandName || !domain || !keywords.trim()) return;

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Loader2, Eye, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Loader2, Eye, MessageSquare, Trash2, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface Report {
@@ -61,6 +61,31 @@ export default function ReportDetailPage() {
         <div>
           <h1 className="text-2xl font-bold">{report.brand_name}</h1>
           <p className="text-sm text-gray-500">{report.domain} &middot; {new Date(report.created_at).toLocaleString()} &middot; ${(report.api_cost_cents / 100).toFixed(2)} cost</p>
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={() => {
+              const params = new URLSearchParams({
+                brand: report.brand_name,
+                domain: report.domain,
+                keywords: report.target_keywords.join(', '),
+              });
+              router.push(`/visibility/new?${params.toString()}`);
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-blue-400 hover:bg-blue-600/10 rounded-lg"
+          >
+            <RefreshCw className="w-4 h-4" /> Re-run
+          </button>
+          <button
+            onClick={async () => {
+              if (!confirm('Delete this report permanently?')) return;
+              await fetch(`/api/visibility/${report.id}`, { method: 'DELETE' });
+              router.push('/visibility');
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-400/60 hover:text-red-400 hover:bg-red-600/10 rounded-lg"
+          >
+            <Trash2 className="w-4 h-4" /> Delete
+          </button>
         </div>
       </div>
 

@@ -79,7 +79,18 @@ export default function AnalyticsPage() {
         {loading ? (
           <div className="text-center py-12 text-gray-500"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />Loading analytics...</div>
         ) : data ? (
-          <div className="prose prose-invert prose-sm max-w-none [&_table]:w-full [&_table]:text-sm [&_th]:text-left [&_th]:py-2 [&_th]:px-3 [&_th]:text-gray-400 [&_th]:border-b [&_th]:border-gray-700 [&_td]:py-2 [&_td]:px-3 [&_td]:border-b [&_td]:border-gray-800/50 [&_td]:text-gray-300 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-white [&_h2]:mb-4 [&_strong]:text-yellow-400">
+          <div className="prose prose-invert prose-sm max-w-none
+            [&_table]:w-full [&_table]:text-sm [&_table]:mb-8
+            [&_thead]:bg-gray-800/50
+            [&_th]:text-left [&_th]:py-3 [&_th]:px-4 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-gray-400 [&_th]:border-b [&_th]:border-gray-700 [&_th]:font-semibold
+            [&_td]:py-3 [&_td]:px-4 [&_td]:border-b [&_td]:border-gray-800/30 [&_td]:text-gray-300
+            [&_tr:hover]:bg-gray-800/20
+            [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-white [&_h2]:mt-10 [&_h2]:mb-2 [&_h2]:pt-6 [&_h2]:border-t [&_h2]:border-gray-800 first:[&_h2]:mt-0 first:[&_h2]:pt-0 first:[&_h2]:border-0
+            [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-orange-400 [&_h3]:mt-8 [&_h3]:mb-2
+            [&_p]:text-gray-400 [&_p]:mb-4 [&_p]:leading-relaxed
+            [&_strong]:text-yellow-400
+            [&_ul]:mb-4 [&_li]:text-gray-400
+          ">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{data}</ReactMarkdown>
           </div>
         ) : (

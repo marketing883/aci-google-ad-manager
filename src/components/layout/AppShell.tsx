@@ -2,6 +2,7 @@
 
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { SetupBanner } from '../SetupBanner';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -9,7 +10,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <TopBar />
       <main className="ml-64 pt-16">
-        <div className="p-6">{children}</div>
+        <div className="p-6">
+          <SetupBanner />
+          {children}
+        </div>
       </main>
     </div>
   );

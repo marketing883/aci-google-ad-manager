@@ -10,7 +10,7 @@ const logger = createLogger('ConfigHealth');
 // ============================================================
 
 export interface SetupStatus {
-  googleAds: { connected: boolean; customerId: string | null; hasValidToken: boolean };
+  googleAds: { connected: boolean; customerId: string | null; hasValidToken: boolean; tokenError: string | null };
   ga4: { connected: boolean; propertyId: string | null };
   companyProfile: { configured: boolean; hasName: boolean; hasServices: boolean; hasCompetitors: boolean };
   dataForSeo: { configured: boolean };
@@ -25,8 +25,8 @@ export interface SetupStatus {
 export async function checkSetupStatus(): Promise<SetupStatus> {
   const supabase = createAdminClient();
 
-  // Check Google Ads
-  let googleAds = { connected: false, customerId: null as string | null, hasValidToken: false };
+  // Check Google Ads — including token health
+  let googleAds = { connected: false, customerId: null as string | null, hasValidToken: false, tokenError: null as string | null };
   try {
     const { data: account } = await supabase
       .from('google_ads_accounts')
@@ -37,7 +37,15 @@ export async function checkSetupStatus(): Promise<SetupStatus> {
     if (account) {
       googleAds.connected = true;
       googleAds.customerId = account.customer_id !== 'pending' ? account.customer_id : null;
-      googleAds.hasValidToken = account.access_token && new Date(account.token_expires_at) > new Date();
+
+      // Check token expiry (lightweight — no API call)
+      const expiresAt = account.token_expires_at ? new Date(account.token_expires_at) : new Date(0);
+      googleAds.hasValidToken = account.access_token && expiresAt > new Date();
+
+      // If token looks expired, note it (actual refresh happens on use)
+      if (!googleAds.hasValidToken && account.access_token) {
+        googleAds.tokenError = 'Token expired — will auto-refresh on next API call.';
+      }
     }
   } catch { /* no account */ }
 

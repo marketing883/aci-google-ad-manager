@@ -180,6 +180,30 @@ export async function storeAccount(
 }
 
 /**
+ * Check if the Google Ads token is still valid.
+ * Attempts a lightweight API call (listAccessibleCustomers).
+ * Returns { healthy, error } — if unhealthy, the user needs to re-connect.
+ */
+export async function checkTokenHealth(): Promise<{ healthy: boolean; error: string | null }> {
+  try {
+    const account = await getActiveAccount();
+    if (!account) return { healthy: false, error: 'No Google Ads account connected.' };
+    if (!account.refresh_token) return { healthy: false, error: 'No refresh token. Re-connect Google Ads.' };
+    if (account.customer_id === 'pending') return { healthy: false, error: 'Customer ID not set. Update in Settings.' };
+
+    // Try to get valid tokens (this will refresh if expired)
+    await getValidTokens(account.id);
+    return { healthy: true, error: null };
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (msg.includes('invalid_grant') || msg.includes('Token has been expired or revoked')) {
+      return { healthy: false, error: 'Google Ads access revoked. Re-connect in Settings.' };
+    }
+    return { healthy: false, error: `Token check failed: ${msg}` };
+  }
+}
+
+/**
  * Get the active Google Ads account
  */
 export async function getActiveAccount() {

@@ -1700,7 +1700,7 @@ export async function executeTool(
             '/terms', '/cookie', '/sitemap', '/404', '/login', '/signup',
             '/press', '/news', '/events', '/podcast', '/webinar',
           ];
-          const CONVERSION_PATTERNS = ['/lp/', '/services', '/platforms', '/contact', '/solutions', '/pricing', '/demo', '/get-started', '/free-trial'];
+          const CONVERSION_PATTERNS = ['/lp/', '/services', '/platforms', '/contact', '/solutions', '/pricing', '/demo', '/get-started', '/free-trial', '/industries'];
           const isConversionPage = (page: string) => {
             const p = page.toLowerCase();
             // Explicitly a conversion page

@@ -526,12 +526,14 @@ unclear → ["analytics","campaign_read","interaction"]`,
             }
             if (choice.message.tool_calls) {
               for (const tc of choice.message.tool_calls) {
-                content.push({
-                  type: 'tool_use',
-                  id: tc.id,
-                  name: tc.function.name,
-                  input: JSON.parse(tc.function.arguments || '{}'),
-                } as Anthropic.ToolUseBlock);
+                if (tc.type === 'function') {
+                  content.push({
+                    type: 'tool_use',
+                    id: tc.id,
+                    name: tc.function.name,
+                    input: JSON.parse(tc.function.arguments || '{}'),
+                  } as Anthropic.ToolUseBlock);
+                }
               }
             }
           }

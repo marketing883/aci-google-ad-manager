@@ -6,8 +6,8 @@ export const createApprovalSchema = z.object({
   action_type: z.string().min(1), // create_campaign, update_bid, pause_keyword, etc.
   entity_type: z.string().min(1), // campaign, ad_group, ad, keyword
   entity_id: z.string().uuid().optional(),
-  payload: z.record(z.unknown()),
-  previous_state: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()),
+  previous_state: z.record(z.string(), z.unknown()).optional(),
   ai_reasoning: z.string().optional(),
   confidence_score: z.number().min(0).max(1).optional(),
   priority: approvalPrioritySchema.default('normal'),
@@ -23,7 +23,7 @@ export const rejectSchema = z.object({
 });
 
 export const editBeforeApproveSchema = z.object({
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
   reviewer_notes: z.string().optional(),
 });
 

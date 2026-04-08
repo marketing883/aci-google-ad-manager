@@ -151,7 +151,7 @@ export const trackingUrlSchema = z.object({
   utm_campaign: z.string(),
   utm_content: z.string().optional(),
   icp_param: z.string().optional(), // e.g. "cio", "cto", "vp_engineering"
-  custom_params: z.record(z.string()).optional(),
+  custom_params: z.record(z.string(), z.string()).optional(),
   full_url: z.string(), // the complete assembled URL
 });
 

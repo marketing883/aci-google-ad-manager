@@ -735,6 +735,11 @@ export function detectWorkflow(message: string): 'pipeline' | 'standalone' {
   const pipelineKeywords = [
     'create a campaign', 'build a campaign', 'new campaign', 'launch a campaign',
     'set up a campaign', 'start a campaign', 'create campaign', 'build campaign',
+    'make a campaign', 'run a campaign', 'launch campaign', 'set up campaign',
+    'create ads for', 'build ads for', 'run ads for', 'launch ads for',
+    'advertise', 'start advertising', 'create search ads', 'build search ads',
+    'create google ads', 'set up google ads', 'need a campaign', 'want a campaign',
+    'make ads for', 'put ads on', 'campaign for',
   ];
 
   if (pipelineKeywords.some((kw) => lower.includes(kw))) {

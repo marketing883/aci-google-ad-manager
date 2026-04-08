@@ -156,19 +156,46 @@ export default function ApprovalDetailPage() {
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <h3 className="text-sm text-gray-400 mb-2">Before</h3>
-                <pre className="bg-gray-800 rounded-lg p-4 text-sm font-mono text-gray-300 min-h-[200px] overflow-auto whitespace-pre-wrap">
-                  {item.previous_state ? JSON.stringify(item.previous_state, null, 2) : 'New entity (no previous state)'}
-                </pre>
-              </div>
-              <div>
-                <h3 className="text-sm text-gray-400 mb-2">After</h3>
-                <pre className="bg-gray-800 rounded-lg p-4 text-sm font-mono text-green-300 min-h-[200px] overflow-auto whitespace-pre-wrap">
-                  {JSON.stringify(item.payload, null, 2)}
-                </pre>
-              </div>
+            <div className="space-y-4">
+              {item.previous_state ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="text-sm text-gray-400 mb-2">Before</h3>
+                    <div className="bg-gray-800 rounded-lg p-4 space-y-2">
+                      {Object.entries(item.previous_state).map(([k, v]) => (
+                        <div key={k} className="flex justify-between text-sm">
+                          <span className="text-gray-500">{k.replace(/_/g, ' ')}</span>
+                          <span className="text-gray-300">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-sm text-gray-400 mb-2">After</h3>
+                    <div className="bg-gray-800 rounded-lg p-4 space-y-2">
+                      {Object.entries(item.payload).map(([k, v]) => (
+                        <div key={k} className="flex justify-between text-sm">
+                          <span className="text-gray-500">{k.replace(/_/g, ' ')}</span>
+                          <span className="text-green-400">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <h3 className="text-sm text-gray-400 mb-2">Proposed Changes</h3>
+                  <div className="bg-gray-800 rounded-lg p-4 space-y-2">
+                    {'campaign_name' in item.payload && <div className="flex justify-between text-sm"><span className="text-gray-500">Campaign</span><span className="text-white font-medium">{String(item.payload.campaign_name)}</span></div>}
+                    {'campaign_type' in item.payload && <div className="flex justify-between text-sm"><span className="text-gray-500">Type</span><span className="text-white">{String(item.payload.campaign_type)}</span></div>}
+                    {('budget' in item.payload || 'budget_micros' in item.payload) && <div className="flex justify-between text-sm"><span className="text-gray-500">Budget</span><span className="text-white">${((Number(item.payload.budget || item.payload.budget_micros || 0)) / 1_000_000).toFixed(2)}/day</span></div>}
+                    {'ad_groups_count' in item.payload && <div className="flex justify-between text-sm"><span className="text-gray-500">Ad Groups</span><span className="text-white">{String(item.payload.ad_groups_count)}</span></div>}
+                    {'ads_count' in item.payload && <div className="flex justify-between text-sm"><span className="text-gray-500">Ads</span><span className="text-white">{String(item.payload.ads_count)}</span></div>}
+                    {'keywords_count' in item.payload && <div className="flex justify-between text-sm"><span className="text-gray-500">Keywords</span><span className="text-white">{String(item.payload.keywords_count)}</span></div>}
+                    {'campaign_id' in item.payload && <div className="flex justify-between text-sm"><span className="text-gray-500">Campaign ID</span><span className="text-gray-600 font-mono text-xs">{String(item.payload.campaign_id)}</span></div>}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

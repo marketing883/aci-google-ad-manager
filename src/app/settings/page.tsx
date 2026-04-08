@@ -223,17 +223,15 @@ export default function SettingsPage() {
 
         {/* AI Configuration */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-2">
             <Brain className="w-5 h-5 text-gray-400" />
             <h2 className="text-lg font-semibold">AI Configuration</h2>
           </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Primary AI Model</label>
-            <select value={settings.default_ai_model as string || 'sonnet'} onChange={(e) => updateSetting('default_ai_model', e.target.value)} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="sonnet">Claude Sonnet 4 (Recommended)</option>
-              <option value="haiku">Claude Haiku 3.5 (Faster)</option>
-              <option value="gpt4o">GPT-4o (Fallback)</option>
-            </select>
+          <p className="text-xs text-gray-600 mb-3 ml-8">AI models are automatically selected per task: Sonnet for strategy and intelligence, Haiku for quick tasks, GPT-4o as fallback.</p>
+          <div className="ml-8 text-xs text-gray-500 space-y-1">
+            <div className="flex gap-4"><span className="w-32 text-gray-400">Research & Build</span><span>Claude Sonnet 4</span></div>
+            <div className="flex gap-4"><span className="w-32 text-gray-400">Quick tasks</span><span>Claude Haiku 3.5</span></div>
+            <div className="flex gap-4"><span className="w-32 text-gray-400">Fallback</span><span>GPT-4o / GPT-4o-mini</span></div>
           </div>
         </div>
 

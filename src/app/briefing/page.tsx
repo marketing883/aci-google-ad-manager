@@ -279,10 +279,13 @@ export default function BriefingPage() {
             <p className="text-sm text-gray-500">Your Google Ads command center</p>
           </div>
         </div>
-        <button onClick={fetchAll} disabled={loading} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] text-gray-600">{!loading && `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}</span>
+          <button onClick={fetchAll} disabled={loading} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Metrics Grid */}

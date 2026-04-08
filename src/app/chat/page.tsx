@@ -416,6 +416,9 @@ export default function ChatPage() {
                   ) : (
                     <span className="whitespace-pre-wrap">{msg.content}</span>
                   )}
+                  <div className={`text-[10px] mt-1.5 ${msg.role === 'user' ? 'text-blue-300/50' : 'text-gray-600'}`}>
+                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
                 </div>
               </div>
             ))}

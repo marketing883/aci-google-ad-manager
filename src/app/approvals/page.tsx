@@ -37,6 +37,7 @@ export default function ApprovalsPage() {
   async function handleBulkApprove() {
     const pendingIds = approvals.filter((a) => a.status === 'pending').map((a) => a.id);
     if (pendingIds.length === 0) return;
+    if (!confirm(`Approve all ${pendingIds.length} pending items? This will push them to Google Ads.`)) return;
     setBulkLoading(true);
     try {
       await fetch('/api/approvals/bulk', {

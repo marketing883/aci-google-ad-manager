@@ -108,6 +108,16 @@ export default function VisibilityDashboard() {
       }
       if (snapshotRes && !snapshotRes.empty) {
         setSnapshot(snapshotRes);
+      } else {
+        // No snapshot exists — trigger first one automatically
+        try {
+          await fetch('/api/cron/analytics-snapshot', { method: 'POST' });
+          // Re-fetch the snapshot
+          const freshSnapshot = await fetch('/api/analytics/snapshot').then((r) => r.json()).catch(() => null);
+          if (freshSnapshot && !freshSnapshot.empty) {
+            setSnapshot(freshSnapshot);
+          }
+        } catch { /* cron may not be available */ }
       }
     } catch { /* ignore */ }
     setLoading(false);

@@ -403,6 +403,20 @@ export function scoreWebsiteHealth(
     }
   }
 
+  // Traffic vs conversion disconnect
+  // If we have landing pages with high traffic but zero conversions overall
+  const totalSessions = landingPages.reduce((s, p) => s + p.sessions, 0);
+  const totalConversions = landingPages.reduce((s, p) => s + p.conversions, 0);
+  if (totalSessions > 200 && totalConversions === 0) {
+    flags.push({
+      type: 'traffic_up_conversions_down',
+      metric: 'overall_conversion_rate',
+      value: 0,
+      threshold: THRESHOLDS.conversion_rate.poor,
+      context: { total_sessions: totalSessions, total_conversions: 0 },
+    });
+  }
+
   return { score: Math.max(0, Math.min(100, score)), flags };
 }
 

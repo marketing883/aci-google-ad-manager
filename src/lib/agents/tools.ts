@@ -1410,13 +1410,21 @@ export async function executeTool(
 
       const opportunities: string[] = [];
 
-      // Budget-limited good performers
+      // Calculate average CPA across all converting campaigns for comparison
+      let totalSpend = 0, totalConv = 0;
+      for (const [, p] of campaignPerf) {
+        if (p.conv > 0) { totalSpend += p.spend; totalConv += p.conv; }
+      }
+      const avgCpa = totalConv > 0 ? totalSpend / totalConv : 0;
+
+      // Budget-limited good performers — campaigns with CPA well below average
       for (const camp of campaigns || []) {
         const p = campaignPerf.get(camp.id);
         if (p && p.conv > 0 && camp.status === 'active') {
           const cpa = p.spend / p.conv;
-          if (cpa < camp.budget_amount_micros) {
-            opportunities.push(`"${camp.name}" has a CPA below daily budget — it could convert more with increased budget.`);
+          // Good performer: CPA below 70% of average across all campaigns
+          if (avgCpa > 0 && cpa < avgCpa * 0.7) {
+            opportunities.push(`"${camp.name}" converts at $${(cpa / 1_000_000).toFixed(2)} CPA (${Math.round((1 - cpa / avgCpa) * 100)}% below average) — consider increasing budget to capture more conversions.`);
           }
         }
       }

@@ -336,8 +336,16 @@ export function scoreWebsiteHealth(
   if (traffic.engagement_rate > 0.6) score += 10;
   else if (traffic.engagement_rate < 0.3) score -= 10;
 
-  // Landing page analysis
-  for (const page of landingPages) {
+  // Landing page analysis — only flag conversion-relevant pages
+  const NON_CONVERSION = ['/careers', '/jobs', '/blog', '/about', '/team', '/privacy', '/terms', '/press', '/news', '/events'];
+  const CONVERSION = ['/lp/', '/services', '/platforms', '/contact', '/solutions', '/pricing', '/demo', '/get-started'];
+  const conversionPages = landingPages.filter((p) => {
+    const path = p.page.toLowerCase();
+    if (CONVERSION.some((pattern) => path.includes(pattern))) return true;
+    if (NON_CONVERSION.some((pattern) => path.startsWith(pattern))) return false;
+    return true; // Include unknown pages
+  });
+  for (const page of conversionPages) {
     if (page.sessions < THRESHOLDS.page_sessions_for_signal) continue;
 
     // High bounce on specific page

@@ -1692,24 +1692,63 @@ export async function executeTool(
           const pages = await getLandingPagePerformance(days);
           if (pages.length === 0) return { result: 'No landing page data available.' };
 
-          lines.push(`## Landing Page Performance (last ${days} days)\n`);
-          lines.push('| Page | Sessions | Bounce | Duration | Conv | Conv Rate | Grade |');
-          lines.push('|------|----------|--------|----------|------|-----------|-------|');
-          for (const p of pages.slice(0, 15)) {
-            const grade = p.conversion_rate >= 0.05 ? 'A' : p.conversion_rate >= 0.03 ? 'B' : p.conversion_rate >= 0.01 ? 'C' : p.sessions > 50 ? 'F' : '-';
-            lines.push(`| ${p.page} | ${p.sessions} | ${(p.bounce_rate * 100).toFixed(0)}% | ${p.avg_duration.toFixed(0)}s | ${p.conversions} | ${(p.conversion_rate * 100).toFixed(1)}% | ${grade} |`);
+          // Classify pages by purpose — don't grade non-conversion pages on conversion rate
+          // /lp/ pages are dedicated landing pages (primary conversion targets)
+          // Service/product pages are secondary conversion targets
+          const NON_CONVERSION_PATTERNS = [
+            '/careers', '/jobs', '/blog', '/about', '/team', '/privacy',
+            '/terms', '/cookie', '/sitemap', '/404', '/login', '/signup',
+            '/press', '/news', '/events', '/podcast', '/webinar',
+          ];
+          const CONVERSION_PATTERNS = ['/lp/', '/services', '/platforms', '/contact', '/solutions', '/pricing', '/demo', '/get-started', '/free-trial'];
+          const isConversionPage = (page: string) => {
+            const p = page.toLowerCase();
+            // Explicitly a conversion page
+            if (CONVERSION_PATTERNS.some((pattern) => p.includes(pattern))) return true;
+            // Explicitly NOT a conversion page
+            if (NON_CONVERSION_PATTERNS.some((pattern) => p.startsWith(pattern))) return false;
+            // Homepage and unknown pages — include but don't flag harshly
+            return true;
+          };
+
+          const conversionPages = pages.filter((p) => isConversionPage(p.page));
+          const contentPages = pages.filter((p) => !isConversionPage(p.page));
+
+          // Conversion pages — graded on conversion rate
+          if (conversionPages.length > 0) {
+            lines.push(`## Service & Landing Pages (last ${days} days)\n`);
+            lines.push('These are your business pages — services, landing pages, and product pages. Graded on conversion rate.\n');
+            lines.push('| Page | Sessions | Bounce | Duration | Conv | Conv Rate | Grade |');
+            lines.push('|------|----------|--------|----------|------|-----------|-------|');
+            for (const p of conversionPages.slice(0, 15)) {
+              const grade = p.conversion_rate >= 0.05 ? 'A' : p.conversion_rate >= 0.03 ? 'B' : p.conversion_rate >= 0.01 ? 'C' : p.sessions > 50 ? 'F' : '-';
+              lines.push(`| ${p.page} | ${p.sessions} | ${(p.bounce_rate * 100).toFixed(0)}% | ${p.avg_duration.toFixed(0)}s | ${p.conversions} | ${(p.conversion_rate * 100).toFixed(1)}% | ${grade} |`);
+            }
+
+            // Flag underperforming conversion pages only
+            const bad = conversionPages.filter((p) => p.sessions >= 50 && p.conversion_rate < THRESHOLDS.conversion_rate.poor);
+            if (bad.length > 0) {
+              lines.push(`\n### Underperforming Pages`);
+              lines.push(`These ${bad.length} business pages get 50+ sessions but convert below ${(THRESHOLDS.conversion_rate.poor * 100)}%. They already have traffic — fix these first.\n`);
+              lines.push('| Page | Sessions | Conv Rate | Bounce | Issue |');
+              lines.push('|------|----------|-----------|--------|-------|');
+              for (const p of bad.slice(0, 5)) {
+                const issue = p.bounce_rate >= 0.6 ? 'High bounce — visitors leave immediately' : p.avg_duration < 15 ? 'Very short visits — content not engaging' : 'Traffic but no conversions — review CTA and form';
+                lines.push(`| ${p.page} | ${p.sessions} | ${(p.conversion_rate * 100).toFixed(1)}% | ${(p.bounce_rate * 100).toFixed(0)}% | ${issue} |`);
+              }
+            }
           }
 
-          // Flag worst performers
-          const bad = pages.filter((p) => p.sessions >= 50 && p.conversion_rate < THRESHOLDS.conversion_rate.poor);
-          if (bad.length > 0) {
-            lines.push(`\n### Underperforming Pages`);
-            lines.push(`These ${bad.length} pages get significant traffic (50+ sessions) but convert below ${(THRESHOLDS.conversion_rate.poor * 100)}%. They're receiving visitors but failing to turn them into leads or customers. Focus on improving these first — they already have the traffic.\n`);
-            lines.push('| Page | Sessions | Conv Rate | Bounce | Issue |');
-            lines.push('|------|----------|-----------|--------|-------|');
-            for (const p of bad.slice(0, 5)) {
-              const issue = p.bounce_rate >= 0.6 ? 'High bounce — visitors leave immediately' : p.avg_duration < 15 ? 'Very short visits — content not engaging' : 'Traffic but no conversions — review CTA and form';
-              lines.push(`| ${p.page} | ${p.sessions} | ${(p.conversion_rate * 100).toFixed(1)}% | ${(p.bounce_rate * 100).toFixed(0)}% | ${issue} |`);
+          // Content/other pages — graded on engagement, not conversion
+          if (contentPages.length > 0) {
+            lines.push(`\n## Content & Other Pages\n`);
+            lines.push('These pages serve a different purpose (careers, blog, about). Graded on engagement, not conversion.\n');
+            lines.push('| Page | Sessions | Bounce | Duration | Purpose |');
+            lines.push('|------|----------|--------|----------|---------|');
+            for (const p of contentPages.slice(0, 10)) {
+              const purpose = p.page.includes('/careers') || p.page.includes('/jobs') ? 'Careers'
+                : p.page.includes('/blog') ? 'Blog' : p.page.includes('/about') ? 'About' : 'Content';
+              lines.push(`| ${p.page} | ${p.sessions} | ${(p.bounce_rate * 100).toFixed(0)}% | ${p.avg_duration.toFixed(0)}s | ${purpose} |`);
             }
           }
 

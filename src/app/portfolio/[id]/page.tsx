@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Trash2, Loader2, MessageSquare, Tag, FileText,
-  ChevronRight, DollarSign, Target, RefreshCw,
+  ChevronRight, DollarSign, Target, RefreshCw, ExternalLink, Plus,
 } from 'lucide-react';
 
 // ============================================================
@@ -46,6 +46,8 @@ interface CampaignDetail {
   budget_amount_micros: number;
   bidding_strategy: string;
   created_at: string;
+  google_campaign_id: string | null;
+  last_synced_at: string | null;
   targets: Record<string, unknown>;
   ad_groups: AdGroupData[];
   negative_keywords: Array<{ keyword_text: string }>;
@@ -166,7 +168,17 @@ export default function CampaignDetailPage() {
               <h1 className="text-2xl font-bold">{campaign.name}</h1>
               <span className={`px-2 py-0.5 rounded text-xs font-bold ${statusBadge(campaign.status)}`}>{campaign.status}</span>
             </div>
-            <p className="text-sm text-gray-500">{campaign.campaign_type} &middot; {fmt(campaign.budget_amount_micros)}/day &middot; {campaign.bidding_strategy}</p>
+            <div className="flex items-center gap-3 text-sm text-gray-500">
+              <span>{campaign.campaign_type} &middot; {fmt(campaign.budget_amount_micros)}/day &middot; {campaign.bidding_strategy}</span>
+              {campaign.google_campaign_id && (
+                <a href={`https://ads.google.com/aw/campaigns?campaignId=${campaign.google_campaign_id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-blue-400 hover:text-blue-300">
+                  <ExternalLink className="w-3 h-3" /> View on Google Ads
+                </a>
+              )}
+              {campaign.last_synced_at && (
+                <span className="text-gray-600">Synced {new Date(campaign.last_synced_at).toLocaleDateString()}</span>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -210,6 +222,15 @@ export default function CampaignDetailPage() {
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
             Ad Groups ({campaign.ad_groups?.length || 0})
           </h2>
+          <button
+            onClick={() => {
+              const msg = encodeURIComponent(`Add a new ad group to campaign "${campaign.name}" (campaign ID: ${campaign.id}). Ask me what theme and keywords.`);
+              router.push(`/chat?prefill=${msg}`);
+            }}
+            className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 mb-3"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Ad Group via Chat
+          </button>
           <div className="space-y-2">
             {campaign.ad_groups?.length > 0 ? campaign.ad_groups.map((ag) => (
               <div
@@ -262,6 +283,15 @@ export default function CampaignDetailPage() {
                   className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-400 hover:bg-red-600/10 rounded-lg"
                 >
                   <Trash2 className="w-4 h-4" /> Delete Group
+                </button>
+                <button
+                  onClick={() => {
+                    const msg = encodeURIComponent(`Edit the ad group "${selectedAdGroup.name}" in campaign "${campaign.name}". What would you like to change?`);
+                    router.push(`/chat?prefill=${msg}`);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm text-blue-400 hover:bg-blue-600/10 rounded-lg"
+                >
+                  <MessageSquare className="w-4 h-4" /> Edit in Chat
                 </button>
               </div>
 
@@ -328,7 +358,7 @@ export default function CampaignDetailPage() {
                             </div>
                             {/* URL */}
                             {ad.final_urls?.[0] && (
-                              <p className="text-[10px] text-gray-600">{ad.final_urls[0]}</p>
+                              <a href={ad.final_urls[0]} target="_blank" rel="noopener noreferrer" className="text-[10px] text-gray-600 hover:text-blue-400 block">{ad.final_urls[0]}</a>
                             )}
                           </div>
                           <button

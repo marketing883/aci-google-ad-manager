@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   PieChart, RefreshCw, Loader2, MessageSquare, AlertTriangle, ArrowRight,
-  Zap, Trash2,
+  Zap, Trash2, Search, ExternalLink,
 } from 'lucide-react';
 
 // ============================================================
@@ -20,6 +20,7 @@ interface CampaignWithStats {
   budget_amount_micros: number;
   bidding_strategy: string;
   created_at: string;
+  google_campaign_id: string | null;
   ad_groups_count: number;
   stats?: {
     impressions: number;
@@ -214,6 +215,11 @@ function CampaignCard({ campaign, onDelete }: { campaign: CampaignWithStats; onD
           >
             <MessageSquare className="w-3.5 h-3.5" /> Chat
           </button>
+          {campaign.google_campaign_id && (
+            <a href={`https://ads.google.com/aw/campaigns?campaignId=${campaign.google_campaign_id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-green-400">
+              <ExternalLink className="w-3.5 h-3.5" /> Google Ads
+            </a>
+          )}
         </div>
         <button onClick={onDelete} className="flex items-center gap-1.5 text-xs text-red-400/50 hover:text-red-400">
           <Trash2 className="w-3.5 h-3.5" /> Delete
@@ -232,6 +238,7 @@ export default function PortfolioPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'paused' | 'draft'>('all');
   const [sortBy, setSortBy] = useState<'health' | 'spend' | 'conversions' | 'name'>('health');
+  const [searchQuery, setSearchQuery] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const fetchCampaigns = useCallback(async () => {
@@ -253,7 +260,11 @@ export default function PortfolioPage() {
     fetchCampaigns();
   }
 
-  const filtered = campaigns.filter((c) => filter === 'all' || c.status === filter);
+  const filtered = campaigns.filter((c) => {
+    if (filter !== 'all' && c.status !== filter) return false;
+    if (searchQuery && !c.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    return true;
+  });
   const sorted = [...filtered].sort((a, b) => {
     switch (sortBy) {
       case 'health': return calculateHealthGrade(b).score - calculateHealthGrade(a).score;
@@ -350,14 +361,20 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      {/* Filters */}
+      {/* Search + Filters */}
       <div className="flex items-center justify-between mb-4">
-        <div className="flex gap-2">
-          {(['all', 'active', 'paused', 'draft'] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 text-sm rounded-lg capitalize ${filter === f ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
-              {f} ({f === 'all' ? campaigns.length : campaigns.filter((c) => c.status === f).length})
-            </button>
-          ))}
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search campaigns..." className="pl-9 pr-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white w-48 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:w-64 transition-all" />
+          </div>
+          <div className="flex gap-2">
+            {(['all', 'active', 'paused', 'draft'] as const).map((f) => (
+              <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 text-sm rounded-lg capitalize ${filter === f ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+                {f} ({f === 'all' ? campaigns.length : campaigns.filter((c) => c.status === f).length})
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-500">
           <span>Sort:</span>

@@ -8,7 +8,9 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set());
 
   // Company profile state
   interface Service { name: string; landing_page: string; description: string }
@@ -41,10 +43,13 @@ export default function SettingsPage() {
   async function fetchSettings() {
     try {
       const res = await fetch('/api/settings');
+      if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
       const data = await res.json();
       setSettings(data);
       loadProfile(data);
-    } catch { /* ignore */ }
+    } catch (e) {
+      setSaveError(`Could not load settings: ${(e as Error).message}`);
+    }
   }
 
   async function checkConnection() {
@@ -58,22 +63,37 @@ export default function SettingsPage() {
   async function handleSave() {
     setSaving(true);
     setSaved(false);
+    setSaveError(null);
     try {
-      // Merge profile into settings before saving
-      const toSave = { ...settings, company_profile: profile };
-      await fetch('/api/settings', {
+      // Only send changed settings + company profile (always include profile)
+      const toSave: Record<string, unknown> = { company_profile: profile };
+      for (const key of dirtyKeys) {
+        toSave[key] = settings[key];
+      }
+
+      const res = await fetch('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(toSave),
       });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Save failed' }));
+        throw new Error(err.error || `Save failed (${res.status})`);
+      }
+
       setSaved(true);
+      setDirtyKeys(new Set()); // Clear dirty tracking
       setTimeout(() => setSaved(false), 3000);
-    } catch { /* ignore */ }
+    } catch (e) {
+      setSaveError((e as Error).message);
+    }
     setSaving(false);
   }
 
   function updateSetting(key: string, value: unknown) {
     setSettings((prev) => ({ ...prev, [key]: value }));
+    setDirtyKeys((prev) => new Set(prev).add(key));
   }
 
   return (
@@ -255,6 +275,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="flex items-center justify-end gap-3">
+          {saveError && <span className="flex items-center gap-1 text-red-400 text-sm">{saveError}</span>}
           {saved && <span className="flex items-center gap-1 text-green-400 text-sm"><CheckCircle className="w-4 h-4" /> Saved</span>}
           <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}

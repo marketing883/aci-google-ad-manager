@@ -396,8 +396,12 @@ unclear → ["analytics","campaign_read","interaction"]`,
   // Standalone Workflows
   // ============================================================
 
-  async *runStandalone(message: string, chatHistory: ChatMessage[]): AsyncGenerator<HarnessEvent> {
+  async *runStandalone(message: string, chatHistory: ChatMessage[], pageContext?: string): AsyncGenerator<HarnessEvent> {
     await this.loadCompanyHeader();
+    // Append page context to company header if provided
+    if (pageContext) {
+      this.companyHeader += `\n\n## Current Page Context\n${pageContext}`;
+    }
     // Classify intent to pick only relevant tools
     const groups = await this.classifyIntent(message);
     this.standaloneTools = getToolsByGroups(groups);

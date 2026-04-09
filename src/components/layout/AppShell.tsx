@@ -3,7 +3,9 @@
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { SetupBanner } from '../SetupBanner';
+import { ChatPanel } from '../ChatPanel';
 import { SidebarProvider, useSidebar } from './SidebarContext';
+import { ChatPanelProvider } from './ChatPanelContext';
 
 function AppContent({ children }: { children: React.ReactNode }) {
   const { collapsed } = useSidebar();
@@ -18,6 +20,7 @@ function AppContent({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+      <ChatPanel />
     </div>
   );
 }
@@ -25,7 +28,9 @@ function AppContent({ children }: { children: React.ReactNode }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
-      <AppContent>{children}</AppContent>
+      <ChatPanelProvider>
+        <AppContent>{children}</AppContent>
+      </ChatPanelProvider>
     </SidebarProvider>
   );
 }

@@ -7,7 +7,7 @@ export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, resumeStage, pipelineContext } = await request.json();
+    const { message, resumeStage, pipelineContext, pageContext } = await request.json();
 
     if (!message || typeof message !== 'string') {
       return new Response(JSON.stringify({ error: 'Message is required' }), {
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
           const workflow = resumeStage ? 'pipeline' : detectWorkflow(message);
           const generator = workflow === 'pipeline'
             ? harness.runPipeline(message, chatHistory, resumeStage, pipelineContext)
-            : harness.runStandalone(message, chatHistory);
+            : harness.runStandalone(message, chatHistory, pageContext as string | undefined);
 
           let fullResponse = '';
 

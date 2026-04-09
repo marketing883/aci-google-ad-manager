@@ -61,7 +61,11 @@
       "Bash(curl -s 'https://iatbuhtqffjcjvejrfxm.supabase.co/rest/v1/analytics_snapshots?select=id&limit=1' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdGJ1aHRxZmZqY2p2ZWpyZnhtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA2MTYyMiwiZXhwIjoyMDkwNjM3NjIyfQ.Ef2tRpc3uR1ESljgNswVuiEUdi4qULO1WTploesKNEM' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdGJ1aHRxZmZqY2p2ZWpyZnhtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA2MTYyMiwiZXhwIjoyMDkwNjM3NjIyfQ.Ef2tRpc3uR1ESljgNswVuiEUdi4qULO1WTploesKNEM')",
       "Bash(curl -s 'https://iatbuhtqffjcjvejrfxm.supabase.co/rest/v1/google_ads_accounts?select=ga4_property_id&limit=1' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdGJ1aHRxZmZqY2p2ZWpyZnhtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA2MTYyMiwiZXhwIjoyMDkwNjM3NjIyfQ.Ef2tRpc3uR1ESljgNswVuiEUdi4qULO1WTploesKNEM' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhdGJ1aHRxZmZqY2p2ZWpyZnhtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA2MTYyMiwiZXhwIjoyMDkwNjM3NjIyfQ.Ef2tRpc3uR1ESljgNswVuiEUdi4qULO1WTploesKNEM')",
       "Bash(node -e \"console.log\\(require\\('openai/package.json'\\).version\\)\")",
-      "Bash(npm ls:*)"
+      "Bash(npm ls:*)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(grep \"from\\('\\\\\\\\|\\\\.from\\('\" /c/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/src/lib/agents/tools.ts)",
+      "Bash(bash /tmp/verify_imports.sh)",
+      "Bash(find /c/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/database -name \"*.sql\" -exec basename {} \\\\;)"
     ]
   }
 }

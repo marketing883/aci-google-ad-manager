@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { RefreshCw, MessageSquare, Loader2 } from 'lucide-react';
-import Link from 'next/link';
+import { RefreshCw, MessageSquare, Loader2, Command } from 'lucide-react';
 import { useSidebar } from './SidebarContext';
+import { useChatPanel } from './ChatPanelContext';
 
 export function TopBar() {
   const { collapsed } = useSidebar();
+  const { openChat } = useChatPanel();
   const [syncing, setSyncing] = useState(false);
 
   async function handleSync() {
@@ -32,13 +33,14 @@ export function TopBar() {
           {syncing ? 'Syncing...' : 'Sync'}
         </button>
 
-        <Link
-          href="/chat"
+        <button
+          onClick={() => openChat()}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
         >
           <MessageSquare className="w-4 h-4" />
           AI Chat
-        </Link>
+          <kbd className="ml-1 text-[10px] text-blue-300/50 bg-blue-700/50 px-1.5 py-0.5 rounded">⌘K</kbd>
+        </button>
       </div>
     </header>
   );

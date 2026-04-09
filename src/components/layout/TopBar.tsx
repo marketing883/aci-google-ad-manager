@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import { RefreshCw, MessageSquare, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { useSidebar } from './SidebarContext';
 
 export function TopBar() {
+  const { collapsed } = useSidebar();
   const [syncing, setSyncing] = useState(false);
 
   async function handleSync() {
@@ -16,7 +18,7 @@ export function TopBar() {
   }
 
   return (
-    <header className="h-16 bg-gray-950 border-b border-gray-800 flex items-center justify-between px-6 ml-64">
+    <header className={`h-16 bg-gray-950 border-b border-gray-800 flex items-center justify-between px-6 transition-all duration-200 ease-in-out ${collapsed ? 'ml-16' : 'ml-64'}`}>
       <div id="page-header" />
 
       <div className="flex items-center gap-3">

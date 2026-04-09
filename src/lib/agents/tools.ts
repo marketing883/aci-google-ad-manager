@@ -732,16 +732,38 @@ export async function executeTool(
         }
       }
 
-      // Extract unique competitors with brand names and ranking keywords
+      // Filter out non-competitor domains before processing
+      const NON_COMPETITOR_DOMAINS = [
+        'google.com', 'youtube.com', 'wikipedia.org', 'reddit.com',
+        'linkedin.com', 'facebook.com', 'twitter.com', 'github.com',
+        'stackoverflow.com', 'medium.com', 'quora.com', 'amazon.com',
+        'microsoft.com', 'learn.microsoft.com', 'docs.microsoft.com',
+        'cloud.google.com', 'aws.amazon.com', 'azure.com',
+        'docs.azure.cn', 'gartner.com', 'g2.com', 'capterra.com',
+        'trustradius.com', 'forbes.com', 'techcrunch.com',
+        'docs.databricks.com', 'databricks.com', // don't list the product itself as competitor
+      ];
+      const NON_COMPETITOR_PATTERNS = [
+        '/docs/', '/blog/', '/learn/', '/help/', '/support/',
+        '/wiki/', '/community/', '/forum/',
+      ];
+
+      // Extract unique competitors — only real company domains
       const competitorMap = new Map<string, { domain: string; brandName: string; ranksFor: string[]; titles: string[] }>();
       for (const result of competitorData) {
         for (const comp of result.competitors) {
           if (!comp.domain) continue;
+
+          // Skip known non-competitors
+          const domainLower = comp.domain.toLowerCase();
+          if (NON_COMPETITOR_DOMAINS.some((d) => domainLower.includes(d))) continue;
+          if (NON_COMPETITOR_PATTERNS.some((p) => (comp.url || '').includes(p))) continue;
+
           const existing = competitorMap.get(comp.domain);
           if (existing) {
             if (!existing.ranksFor.includes(result.keyword)) existing.ranksFor.push(result.keyword);
+            if (!existing.titles.includes(comp.title)) existing.titles.push(comp.title);
           } else {
-            // Extract brand name from domain: snowflake.com → Snowflake, aws.amazon.com → AWS
             const brand = extractBrandName(comp.domain, comp.title);
             competitorMap.set(comp.domain, {
               domain: comp.domain,
@@ -753,15 +775,20 @@ export async function executeTool(
         }
       }
 
-      // Store competitor data in DB
+      // Only store competitors that rank for 2+ keywords (real competitive overlap)
+      // OR are explicitly provided by the user
+      const providedDomains = new Set(domains.map((d) => d.toLowerCase()));
       for (const [, comp] of competitorMap) {
-        try {
-          await supabase.from('competitor_data').upsert({
-            domain: comp.domain,
-            company_name: comp.brandName,
-            notes: `Ranks for: ${comp.ranksFor.join(', ')}`,
-          }, { onConflict: 'domain' });
-        } catch { /* non-critical */ }
+        const isProvided = providedDomains.has(comp.domain.toLowerCase());
+        if (comp.ranksFor.length >= 2 || isProvided) {
+          try {
+            await supabase.from('competitor_data').upsert({
+              domain: comp.domain,
+              company_name: comp.brandName,
+              notes: `Ranks for: ${comp.ranksFor.join(', ')}`,
+            }, { onConflict: 'domain' });
+          } catch { /* non-critical */ }
+        }
       }
 
       // Generate conquest keyword suggestions for each competitor

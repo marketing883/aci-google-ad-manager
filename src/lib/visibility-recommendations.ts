@@ -104,6 +104,24 @@ export const RECOMMENDATION_CATALOG: Record<string, Recommendation> = {
     action: 'Traffic increased but conversions didn\'t follow. Check for bot traffic, verify conversion tracking, review keyword intent.',
     category: 'traffic', impact: 'high',
   },
+  reduce_paid_organic_overlap: {
+    id: 'reduce_paid_organic_overlap',
+    title: 'Consider reducing paid spend where organic is strong',
+    action: 'You rank top-3 organically and bid on the same keyword. Test reducing paid spend to save budget — your organic listing may capture this traffic.',
+    category: 'spend', impact: 'medium',
+  },
+  send_traffic_to_converter: {
+    id: 'send_traffic_to_converter',
+    title: 'Send paid traffic to your best converting page',
+    action: 'This landing page converts well but receives no paid traffic. Create an ad group pointing to this page to maximize ROI.',
+    category: 'spend', impact: 'high',
+  },
+  visibility_dropped: {
+    id: 'visibility_dropped',
+    title: 'Visibility score decreased',
+    action: 'Your overall visibility score dropped. Review which scores changed (organic, AI overview, paid, LLM) and take targeted action to recover.',
+    category: 'visibility', impact: 'high',
+  },
   create_organic_content: {
     id: 'create_organic_content',
     title: 'Create content for organic presence',

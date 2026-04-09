@@ -222,17 +222,51 @@ async function detectNewCompetitor(supabase: ReturnType<typeof createAdminClient
     .select('domain, company_name, notes')
     .gte('created_at', sevenDaysAgo);
 
-  for (const comp of newCompetitors || []) {
+  if (!newCompetitors?.length) return insights;
+
+  // Filter out garbage: must have a real domain and a reasonable company name
+  const validCompetitors = newCompetitors.filter((c) => {
+    if (!c.domain || c.domain.length < 4) return false;
+    const name = c.company_name || '';
+    // Filter out numeric-only names, single chars, or very short garbage
+    if (/^\d+$/.test(name)) return false;
+    if (name.length < 3 && !c.domain) return false;
+    // Filter out common non-competitor domains
+    const skipDomains = ['google.com', 'youtube.com', 'wikipedia.org', 'reddit.com', 'linkedin.com', 'facebook.com', 'twitter.com', 'github.com', 'stackoverflow.com', 'medium.com', 'quora.com', 'amazon.com'];
+    if (skipDomains.some((d) => c.domain.includes(d))) return false;
+    return true;
+  });
+
+  // Deduplicate by domain
+  const seen = new Set<string>();
+  const unique = validCompetitors.filter((c) => {
+    if (seen.has(c.domain)) return false;
+    seen.add(c.domain);
+    return true;
+  });
+
+  // Only show top 3 most relevant (those that rank for multiple keywords are mentioned in notes)
+  const sorted = unique.sort((a, b) => {
+    const aKeywords = (a.notes || '').split(',').length;
+    const bKeywords = (b.notes || '').split(',').length;
+    return bKeywords - aKeywords;
+  });
+
+  for (const comp of sorted.slice(0, 3)) {
+    const displayName = comp.company_name && comp.company_name.length >= 3 && !/^\d+$/.test(comp.company_name)
+      ? comp.company_name
+      : comp.domain;
+
     insights.push(makeInsight(
       'new_competitor',
-      `New competitor detected: ${comp.company_name || comp.domain}`,
-      `${comp.company_name || comp.domain} was found ranking for your keywords${comp.notes ? ` (${comp.notes})` : ''}. Consider monitoring their strategy.`,
+      `New competitor: ${displayName}`,
+      `${displayName} (${comp.domain}) was found ranking for your keywords${comp.notes ? `: ${comp.notes}` : ''}. Worth monitoring.`,
       'competitor_dominates',
       'info',
       ['serp'],
-      { domain: comp.domain, company: comp.company_name },
+      { domain: comp.domain, company: displayName },
       [
-        { label: 'Analyze', type: 'chat', chatPrefill: `Analyze competitor ${comp.company_name || comp.domain} — what keywords are they targeting and how should we respond?` },
+        { label: 'Analyze', type: 'chat', chatPrefill: `Analyze competitor ${displayName} (${comp.domain}) — what keywords are they targeting and how should we respond?` },
         { label: 'View Intelligence', type: 'navigate', href: '/intelligence' },
       ],
       3,

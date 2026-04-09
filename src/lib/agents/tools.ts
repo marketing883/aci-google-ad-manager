@@ -14,13 +14,19 @@ const logger = createLogger('Tools');
 
 /** Extract brand name from domain + SERP title */
 function extractBrandName(domain: string, title: string): string {
-  // Common patterns: snowflake.com → Snowflake, aws.amazon.com → AWS
   const domainParts = domain.replace(/^www\./, '').split('.');
   const base = domainParts[0];
 
-  // If title starts with a recognizable brand, use that
+  // Try to extract brand from title — must be alphabetic, not a number or generic word
   const titleFirstWord = title.split(/[\s\-–|:]/)[0].trim();
-  if (titleFirstWord.length >= 2 && titleFirstWord.length <= 30) {
+  const genericWords = ['the', 'top', 'best', 'how', 'what', 'why', 'a', 'an', 'is'];
+  if (
+    titleFirstWord.length >= 3 &&
+    titleFirstWord.length <= 30 &&
+    /^[A-Z]/.test(titleFirstWord) &&          // Starts with capital
+    !/^\d+$/.test(titleFirstWord) &&           // Not a number
+    !genericWords.includes(titleFirstWord.toLowerCase())  // Not generic
+  ) {
     return titleFirstWord;
   }
 

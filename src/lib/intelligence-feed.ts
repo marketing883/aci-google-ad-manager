@@ -203,8 +203,9 @@ export async function generateIntelligenceFeed(): Promise<IntelligenceFeedRespon
       return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
     });
 
+    // Cap at 15 items — show the most important, not everything
     const response: IntelligenceFeedResponse = {
-      items: allItems,
+      items: allItems.slice(0, 15),
       stats,
       generatedAt: new Date().toISOString(),
     };

@@ -103,7 +103,14 @@ function CompetitorCard({ competitor, onDelete, onAnalyze }: {
 }) {
   const [expanded, setExpanded] = useState(false);
   const threat = getThreatLevel(competitor);
-  const keywords = competitor.observed_keywords || [];
+  // Use observed_keywords if populated, otherwise parse from notes field
+  let keywords = competitor.observed_keywords || [];
+  if (keywords.length === 0 && competitor.notes) {
+    const match = competitor.notes.match(/Ranks for:\s*(.+)/);
+    if (match) {
+      keywords = match[1].split(',').map((k: string) => ({ text: k.trim(), first_seen: competitor.created_at })).filter((k: { text: string }) => k.text);
+    }
+  }
   const ads = competitor.observed_ads || [];
 
   return (

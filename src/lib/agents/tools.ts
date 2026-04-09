@@ -777,6 +777,7 @@ export async function executeTool(
 
       // Only store competitors that rank for 2+ keywords (real competitive overlap)
       // OR are explicitly provided by the user
+      const now = new Date().toISOString();
       const providedDomains = new Set(domains.map((d) => d.toLowerCase()));
       for (const [, comp] of competitorMap) {
         const isProvided = providedDomains.has(comp.domain.toLowerCase());
@@ -786,6 +787,11 @@ export async function executeTool(
               domain: comp.domain,
               company_name: comp.brandName,
               notes: `Ranks for: ${comp.ranksFor.join(', ')}`,
+              observed_keywords: comp.ranksFor.map((kw) => ({
+                text: kw,
+                first_seen: now,
+                last_seen: now,
+              })),
             }, { onConflict: 'domain' });
           } catch { /* non-critical */ }
         }

@@ -144,24 +144,36 @@ export function ChatPanel() {
 
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${
+              <div className={`px-3 py-2 rounded-lg text-sm overflow-hidden ${
                 msg.role === 'user'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-900 border border-gray-800 text-gray-200'
+                  ? 'bg-blue-600 text-white max-w-[85%]'
+                  : 'bg-gray-900 border border-gray-800 text-gray-200 w-full'
               }`}>
                 {msg.role === 'assistant' ? (
-                  <div>
+                  <div className="overflow-x-auto">
                     {msg.events?.map((event, i) => (
                       <EventCard key={i} event={event} />
                     ))}
                     {msg.content && (
-                      <div className="prose prose-invert prose-xs max-w-none [&>p]:mb-1 [&_table]:text-[11px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1">
+                      <div className="prose prose-invert prose-xs max-w-none
+                        [&>p]:mb-2 [&>p]:leading-relaxed
+                        [&_table]:w-full [&_table]:text-[10px] [&_table]:mb-3
+                        [&_thead]:bg-gray-800/50
+                        [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:text-gray-400 [&_th]:font-medium [&_th]:border-b [&_th]:border-gray-700 [&_th]:whitespace-nowrap
+                        [&_td]:px-2 [&_td]:py-1 [&_td]:border-b [&_td]:border-gray-800/30 [&_td]:text-gray-300
+                        [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-white
+                        [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-orange-400
+                        [&_strong]:text-white
+                        [&_ul]:mb-2 [&_li]:text-xs [&_li]:text-gray-400
+                        [&_code]:text-[10px] [&_code]:bg-gray-800 [&_code]:px-1 [&_code]:rounded
+                        [&_pre]:text-[10px] [&_pre]:bg-gray-800 [&_pre]:p-2 [&_pre]:rounded [&_pre]:overflow-x-auto
+                      ">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <span className="whitespace-pre-wrap text-sm">{msg.content}</span>
+                  <span className="whitespace-pre-wrap text-sm break-words">{msg.content}</span>
                 )}
                 <div className={`text-[9px] mt-1 ${msg.role === 'user' ? 'text-blue-300/40' : 'text-gray-600'}`}>
                   {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

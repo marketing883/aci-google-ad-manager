@@ -1,15 +1,42 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Zap, MessageSquare, PieChart, Radar, Eye,
-  CheckSquare, Settings, Activity, PanelLeftClose, PanelLeftOpen,
+  CheckSquare,
+  Eye,
+  MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PieChart,
+  Radar,
+  Settings,
+  Zap,
+  type LucideIcon,
 } from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { AciLogo } from '@/components/brand/AciLogo';
+import { api } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import { useSidebar } from './SidebarContext';
 
-const NAV_ITEMS = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  description: string;
+  showBadge?: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
   { href: '/briefing', label: 'Briefing', icon: Zap, description: 'AI insights & alerts' },
   { href: '/chat', label: 'Chat', icon: MessageSquare, description: 'Talk to your strategist' },
   { href: '/portfolio', label: 'Portfolio', icon: PieChart, description: 'Campaign health & spend' },
@@ -31,21 +58,26 @@ export function Sidebar() {
   const showExpanded = !collapsed || hovered;
 
   useEffect(() => {
+    const fetchCounts = async () => {
+      try {
+        const [apps, conn] = await Promise.allSettled([
+          api.get<unknown[]>('/api/approvals?status=pending&limit=50'),
+          api.get<{ connected: boolean }>('/api/google-ads/auth/status'),
+        ]);
+        if (apps.status === 'fulfilled') {
+          setPendingCount(Array.isArray(apps.value) ? apps.value.length : 0);
+        }
+        if (conn.status === 'fulfilled') {
+          setConnected(conn.value.connected || false);
+        }
+      } catch {
+        /* silent — sidebar badges are non-critical */
+      }
+    };
     fetchCounts();
     const interval = setInterval(fetchCounts, 30_000);
     return () => clearInterval(interval);
   }, []);
-
-  async function fetchCounts() {
-    try {
-      const [appRes, connRes] = await Promise.all([
-        fetch('/api/approvals?status=pending&limit=50').then((r) => r.json()),
-        fetch('/api/google-ads/auth/status').then((r) => r.json()),
-      ]);
-      setPendingCount(Array.isArray(appRes) ? appRes.length : 0);
-      setConnected(connRes.connected || false);
-    } catch { /* ignore */ }
-  }
 
   function handleMouseEnter() {
     if (!collapsed) return;
@@ -61,86 +93,141 @@ export function Sidebar() {
     <aside
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className={`fixed left-0 top-0 h-full bg-gray-950 border-r border-gray-800 flex flex-col z-40 transition-all duration-200 ease-in-out ${
-        showExpanded ? 'w-64' : 'w-16'
-      }`}
+      className={cn(
+        'fixed left-0 top-0 z-40 flex h-full flex-col border-r border-border bg-card transition-all duration-200 ease-in-out',
+        showExpanded ? 'w-64' : 'w-16',
+      )}
+      aria-label="Primary navigation"
     >
-      {/* Logo */}
-      <div className="h-16 flex items-center px-4 border-b border-gray-800">
-        <Link href="/briefing" className="flex items-center gap-2.5 overflow-hidden">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0">
-            <Activity className="w-4 h-4 text-white" />
-          </div>
+      {/* Brand header — ACI Interactive is the primary brand */}
+      <div className="flex h-16 items-center border-b border-border px-4">
+        <Link
+          href="/briefing"
+          className="flex min-w-0 items-center gap-2.5 overflow-hidden"
+          aria-label="ACI Interactive home"
+        >
+          <AciLogo variant="mark" width={32} className="shrink-0" />
           {showExpanded && (
-            <div className="whitespace-nowrap">
-              <span className="text-white font-semibold text-base block leading-tight">ACI Ads</span>
-              <span className="text-[10px] text-gray-500 leading-none">Command Center</span>
+            <div className="min-w-0 whitespace-nowrap leading-tight">
+              <span className="block text-sm font-semibold tracking-tight text-foreground">
+                ACI Interactive
+              </span>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Marketing command center
+              </span>
             </div>
           )}
         </Link>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-4">
         {NAV_ITEMS.map((item) => {
-          const isActive = pathname === item.href || (item.href !== '/settings' && pathname.startsWith(item.href + '/'));
+          const isActive =
+            pathname === item.href ||
+            (item.href !== '/settings' && pathname.startsWith(item.href + '/'));
           const Icon = item.icon;
+          const showPendingDot =
+            !showExpanded && item.showBadge && pendingCount > 0;
 
-          return (
-            <div key={item.href} className="relative group">
-              <Link
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  isActive
-                    ? 'bg-blue-600/15 text-blue-400 border border-blue-600/20'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-800/50 border border-transparent'
-                }`}
-              >
-                <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-blue-400' : ''}`} />
-                {showExpanded && (
-                  <>
-                    <span className="whitespace-nowrap">{item.label}</span>
-                    {item.showBadge && pendingCount > 0 && (
-                      <span className="ml-auto bg-orange-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1">
-                        {pendingCount}
-                      </span>
-                    )}
-                  </>
-                )}
-                {/* Collapsed: small dot for pending approvals */}
-                {!showExpanded && item.showBadge && pendingCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-orange-500 rounded-full" />
-                )}
-              </Link>
-              {/* Tooltip on hover in collapsed state */}
-              {!showExpanded && (
-                <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-gray-800 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 shadow-lg border border-gray-700 z-50">
-                  {item.label}
-                  {item.showBadge && pendingCount > 0 && ` (${pendingCount})`}
-                </div>
+          const linkBody = (
+            <Link
+              href={item.href}
+              aria-current={isActive ? 'page' : undefined}
+              className={cn(
+                'group/nav relative flex items-center gap-3 rounded-md border px-3 py-2 text-sm font-medium transition-colors',
+                isActive
+                  ? 'border-primary/30 bg-primary/10 text-primary'
+                  : 'border-transparent text-muted-foreground hover:bg-accent/5 hover:text-foreground',
               )}
-            </div>
+            >
+              {/* Active marker bar */}
+              {isActive && (
+                <span
+                  className="absolute -left-2 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary"
+                  aria-hidden="true"
+                />
+              )}
+              <Icon
+                className={cn(
+                  'h-5 w-5 shrink-0',
+                  isActive
+                    ? 'text-primary'
+                    : 'text-muted-foreground group-hover/nav:text-foreground',
+                )}
+              />
+              {showExpanded && (
+                <>
+                  <span className="whitespace-nowrap">{item.label}</span>
+                  {item.showBadge && pendingCount > 0 && (
+                    <Badge variant="warning" className="ml-auto">
+                      {pendingCount}
+                    </Badge>
+                  )}
+                </>
+              )}
+              {showPendingDot && (
+                <span
+                  className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-warning ring-2 ring-card"
+                  aria-label={`${pendingCount} pending`}
+                />
+              )}
+            </Link>
+          );
+
+          // Only wrap in Tooltip when collapsed — otherwise the label is visible.
+          return !showExpanded ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{linkBody}</TooltipTrigger>
+              <TooltipContent side="right" className="flex items-center gap-2">
+                <span>{item.label}</span>
+                {item.showBadge && pendingCount > 0 && (
+                  <span className="text-[10px] text-warning">
+                    {pendingCount} pending
+                  </span>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div key={item.href}>{linkBody}</div>
           );
         })}
       </nav>
 
+      <Separator />
+
       {/* Toggle + Connection status */}
-      <div className="border-t border-gray-800">
-        {/* Toggle button */}
+      <div>
         <button
           onClick={toggleSidebar}
-          className="w-full flex items-center gap-3 px-3 py-2.5 text-gray-500 hover:text-white hover:bg-gray-800/50 transition-colors"
+          className="flex w-full items-center gap-3 px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent/5 hover:text-foreground"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? <PanelLeftOpen className="w-5 h-5 shrink-0" /> : <PanelLeftClose className="w-5 h-5 shrink-0" />}
-          {showExpanded && <span className="text-xs whitespace-nowrap">Collapse sidebar</span>}
+          {collapsed ? (
+            <PanelLeftOpen className="h-5 w-5 shrink-0" />
+          ) : (
+            <PanelLeftClose className="h-5 w-5 shrink-0" />
+          )}
+          {showExpanded && <span className="whitespace-nowrap">Collapse sidebar</span>}
         </button>
 
-        {/* Connection status */}
-        <div className={`px-3 py-3 flex items-center gap-2 ${showExpanded ? '' : 'justify-center'}`}>
-          <div className={`w-2 h-2 rounded-full shrink-0 ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+        <div
+          className={cn(
+            'flex items-center gap-2 px-3 py-3',
+            !showExpanded && 'justify-center',
+          )}
+          title={connected ? 'Google Ads connected' : 'Google Ads not connected'}
+        >
+          <span
+            className={cn(
+              'h-2 w-2 shrink-0 rounded-full',
+              connected ? 'bg-success' : 'bg-critical',
+            )}
+            aria-hidden="true"
+          />
           {showExpanded && (
-            <span className="text-xs text-gray-500 whitespace-nowrap">
-              {connected ? 'Google Ads Connected' : 'Google Ads Disconnected'}
+            <span className="whitespace-nowrap text-[10px] text-muted-foreground">
+              {connected ? 'Google Ads connected' : 'Google Ads disconnected'}
             </span>
           )}
         </div>

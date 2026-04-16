@@ -35,24 +35,18 @@ export function ChatPanelProvider({ children }: { children: React.ReactNode }) {
     // Don't clear context/message — panel might reopen
   }, []);
 
-  // Cmd+K / Ctrl+K to toggle chat panel
+  // Escape to close the chat panel.
+  // Cmd+K is now owned by the CommandPalette; the palette has an action that
+  // opens this panel if the user wants to jump straight into chat.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        if (isOpen) {
-          closeChat();
-        } else {
-          openChat();
-        }
-      }
       if (e.key === 'Escape' && isOpen) {
         closeChat();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, openChat, closeChat]);
+  }, [isOpen, closeChat]);
 
   return (
     <ChatPanelCtx.Provider value={{ isOpen, context, initialMessage, openChat, closeChat }}>

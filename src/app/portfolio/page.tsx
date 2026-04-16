@@ -1,12 +1,46 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  PieChart, RefreshCw, Loader2, MessageSquare, AlertTriangle, ArrowRight,
-  Zap, Trash2, Search, ExternalLink,
+  AlertTriangle,
+  ArrowRight,
+  DollarSign,
+  ExternalLink,
+  Loader2,
+  MessageSquare,
+  MousePointerClick,
+  PieChart,
+  RefreshCw,
+  Search,
+  Target,
+  Trash2,
+  TrendingUp,
+  Zap,
 } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ConfirmDialog } from '@/components/patterns/ConfirmDialog';
+import { EmptyState } from '@/components/patterns/EmptyState';
+import { MetricCard } from '@/components/patterns/MetricCard';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { SkeletonMetricGrid } from '@/components/patterns/SkeletonFeed';
+import { api } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 
 // ============================================================
 // Types
@@ -31,27 +65,25 @@ interface CampaignWithStats {
   };
 }
 
-interface PortfolioMetrics {
-  total_spend: number;
-  total_conversions: number;
-  total_clicks: number;
-  total_impressions: number;
-  avg_cpa: number | null;
-  avg_ctr: number;
-  campaign_count: number;
-  active_count: number;
-}
+// ============================================================
+// Health scoring
+// ============================================================
 
-// ============================================================
-// Health Score
-// ============================================================
+type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
 
 interface HealthGrade {
-  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  grade: Grade;
   score: number;
-  color: string;
-  bgColor: string;
+  tone: 'success' | 'info' | 'warning' | 'critical' | 'muted';
   reasons: string[];
+}
+
+function gradeTone(score: number): HealthGrade['tone'] {
+  if (score >= 80) return 'success';
+  if (score >= 60) return 'info';
+  if (score >= 40) return 'warning';
+  if (score >= 20) return 'critical';
+  return 'muted';
 }
 
 function calculateHealthGrade(campaign: CampaignWithStats): HealthGrade {
@@ -59,348 +91,627 @@ function calculateHealthGrade(campaign: CampaignWithStats): HealthGrade {
   let score = 50;
   const stats = campaign.stats;
   if (!stats || stats.impressions === 0) {
-    return { grade: 'F', score: 0, color: 'text-gray-400', bgColor: 'bg-gray-700', reasons: ['No performance data'] };
+    return { grade: 'F', score: 0, tone: 'muted', reasons: ['No performance data'] };
   }
   const ctr = stats.ctr || (stats.impressions > 0 ? stats.clicks / stats.impressions : 0);
-  if (ctr >= 0.05) { score += 25; reasons.push('Excellent CTR (>5%)'); }
-  else if (ctr >= 0.03) { score += 15; reasons.push('Good CTR (3-5%)'); }
-  else if (ctr >= 0.01) { score += 5; reasons.push('Average CTR (1-3%)'); }
-  else { score -= 10; reasons.push('Low CTR (<1%)'); }
+  if (ctr >= 0.05) {
+    score += 25;
+    reasons.push('Excellent CTR (>5%)');
+  } else if (ctr >= 0.03) {
+    score += 15;
+    reasons.push('Good CTR (3-5%)');
+  } else if (ctr >= 0.01) {
+    score += 5;
+    reasons.push('Average CTR (1-3%)');
+  } else {
+    score -= 10;
+    reasons.push('Low CTR (<1%)');
+  }
   if (stats.conversions > 0) {
     const cpa = stats.cost_micros / stats.conversions;
     const budget = campaign.budget_amount_micros;
-    if (budget <= 0) { score += 15; }
-    else if (cpa <= budget * 0.5) { score += 30; reasons.push('Great CPA'); }
-    else if (cpa <= budget) { score += 20; }
-    else if (cpa <= budget * 2) { score += 5; }
-    else { score -= 10; reasons.push('CPA exceeds 2x budget'); }
-  } else if (stats.cost_micros > 0) { score -= 15; reasons.push('No conversions'); }
+    if (budget <= 0) {
+      score += 15;
+    } else if (cpa <= budget * 0.5) {
+      score += 30;
+      reasons.push('Great CPA');
+    } else if (cpa <= budget) {
+      score += 20;
+    } else if (cpa <= budget * 2) {
+      score += 5;
+    } else {
+      score -= 10;
+      reasons.push('CPA exceeds 2x budget');
+    }
+  } else if (stats.cost_micros > 0) {
+    score -= 15;
+    reasons.push('No conversions');
+  }
   if (stats.cost_micros > 0 && stats.clicks > 0) {
     const avgCpc = stats.cost_micros / stats.clicks;
     if (avgCpc <= 2_000_000) score += 15;
     else if (avgCpc <= 5_000_000) score += 10;
   }
   score = Math.max(0, Math.min(100, score));
-  let grade: HealthGrade['grade'], color: string, bgColor: string;
-  if (score >= 80) { grade = 'A'; color = 'text-green-400'; bgColor = 'bg-green-600'; }
-  else if (score >= 60) { grade = 'B'; color = 'text-blue-400'; bgColor = 'bg-blue-600'; }
-  else if (score >= 40) { grade = 'C'; color = 'text-yellow-400'; bgColor = 'bg-yellow-600'; }
-  else if (score >= 20) { grade = 'D'; color = 'text-orange-400'; bgColor = 'bg-orange-600'; }
-  else { grade = 'F'; color = 'text-red-400'; bgColor = 'bg-red-600'; }
-  return { grade, score, color, bgColor, reasons };
+  let grade: Grade;
+  if (score >= 80) grade = 'A';
+  else if (score >= 60) grade = 'B';
+  else if (score >= 40) grade = 'C';
+  else if (score >= 20) grade = 'D';
+  else grade = 'F';
+  return { grade, score, tone: gradeTone(score), reasons };
 }
 
 function getOverallGrade(campaigns: CampaignWithStats[]): HealthGrade {
   const active = campaigns.filter((c) => c.status === 'active' && c.stats);
-  if (active.length === 0) return { grade: 'F', score: 0, color: 'text-gray-400', bgColor: 'bg-gray-700', reasons: [] };
-  const avg = active.reduce((s, c) => s + calculateHealthGrade(c).score, 0) / active.length;
-  const grade = avg >= 80 ? 'A' : avg >= 60 ? 'B' : avg >= 40 ? 'C' : avg >= 20 ? 'D' : 'F';
-  const color = avg >= 80 ? 'text-green-400' : avg >= 60 ? 'text-blue-400' : avg >= 40 ? 'text-yellow-400' : avg >= 20 ? 'text-orange-400' : 'text-red-400';
-  const bgColor = avg >= 80 ? 'bg-green-600' : avg >= 60 ? 'bg-blue-600' : avg >= 40 ? 'bg-yellow-600' : avg >= 20 ? 'bg-orange-600' : 'bg-red-600';
-  return { grade: grade as HealthGrade['grade'], score: Math.round(avg), color, bgColor, reasons: [] };
+  if (active.length === 0) {
+    return { grade: 'F', score: 0, tone: 'muted', reasons: [] };
+  }
+  const avgScore =
+    active.reduce((s, c) => s + calculateHealthGrade(c).score, 0) / active.length;
+  const grade: Grade =
+    avgScore >= 80
+      ? 'A'
+      : avgScore >= 60
+        ? 'B'
+        : avgScore >= 40
+          ? 'C'
+          : avgScore >= 20
+            ? 'D'
+            : 'F';
+  return {
+    grade,
+    score: Math.round(avgScore),
+    tone: gradeTone(avgScore),
+    reasons: [],
+  };
 }
 
 function getRecommendation(campaign: CampaignWithStats, health: HealthGrade): string {
-  if (!campaign.stats || campaign.stats.impressions === 0) return 'No data yet — sync or wait for campaign to start.';
-  if (campaign.stats.conversions === 0 && campaign.stats.cost_micros > 5_000_000) return 'Spending without conversions. Review keywords or landing page.';
+  if (!campaign.stats || campaign.stats.impressions === 0)
+    return 'No data yet — sync or wait for campaign to start.';
+  if (campaign.stats.conversions === 0 && campaign.stats.cost_micros > 5_000_000)
+    return 'Spending without conversions. Review keywords or landing page.';
   if (health.grade === 'A') return 'Top performer — consider increasing budget.';
   if (health.grade === 'B') return 'Performing well. Test new ad copy.';
   if (campaign.stats.ctr < 0.01) return 'Low CTR — ad copy needs work.';
-  if (health.grade === 'D' || health.grade === 'F') return 'Underperforming. Ask AI to investigate.';
+  if (health.grade === 'D' || health.grade === 'F')
+    return 'Underperforming. Ask AI to investigate.';
   return 'Stable. Monitor for opportunities.';
 }
 
 function fmt(micros: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(micros / 1_000_000);
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(micros / 1_000_000);
 }
 
-const statusBadge = (status: string) => {
-  const c: Record<string, string> = {
-    active: 'bg-green-600/20 text-green-400', paused: 'bg-yellow-600/20 text-yellow-400',
-    draft: 'bg-gray-700 text-gray-400', removed: 'bg-red-600/20 text-red-400',
-    pending_approval: 'bg-purple-600/20 text-purple-400', approved: 'bg-blue-600/20 text-blue-400',
-  };
-  return c[status] || 'bg-gray-700 text-gray-400';
+const STATUS_VARIANT: Record<string, 'success' | 'warning' | 'muted' | 'critical' | 'info' | 'accent'> = {
+  active: 'success',
+  paused: 'warning',
+  draft: 'muted',
+  removed: 'critical',
+  pending_approval: 'accent',
+  approved: 'info',
 };
 
-// ============================================================
-// Delete Confirmation Modal
-// ============================================================
-
-function DeleteModal({ name, onConfirm, onCancel }: { name: string; onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel}>
-      <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-red-600/20 flex items-center justify-center"><Trash2 className="w-5 h-5 text-red-400" /></div>
-          <h3 className="text-lg font-semibold text-white">Delete Campaign</h3>
-        </div>
-        <p className="text-sm text-gray-400 mb-6">Permanently delete <strong className="text-white">&quot;{name}&quot;</strong> and ALL its ad groups, ads, and keywords? This cannot be undone.</p>
-        <div className="flex justify-end gap-3">
-          <button onClick={onCancel} className="px-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg">Cancel</button>
-          <button onClick={onConfirm} className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg">Delete Permanently</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+const toneClass = {
+  success: 'bg-success/10 text-success',
+  info: 'bg-info/10 text-info',
+  warning: 'bg-warning/10 text-warning',
+  critical: 'bg-critical/10 text-critical',
+  muted: 'bg-muted text-muted-foreground',
+} as const;
 
 // ============================================================
-// Campaign Card — clicks through to /portfolio/[id]
+// Campaign card
 // ============================================================
 
-function CampaignCard({ campaign, onDelete }: { campaign: CampaignWithStats; onDelete: () => void }) {
+function CampaignCard({
+  campaign,
+  onDelete,
+}: {
+  campaign: CampaignWithStats;
+  onDelete: () => void;
+}) {
   const router = useRouter();
   const health = calculateHealthGrade(campaign);
   const recommendation = getRecommendation(campaign, health);
   const stats = campaign.stats;
-  const spendPct = stats?.cost_micros && campaign.budget_amount_micros > 0
-    ? Math.min(100, Math.round((stats.cost_micros / (campaign.budget_amount_micros * 30)) * 100)) : 0;
+  const spendPct =
+    stats?.cost_micros && campaign.budget_amount_micros > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (stats.cost_micros / (campaign.budget_amount_micros * 30)) * 100,
+          ),
+        )
+      : 0;
+
+  const statusVariant = STATUS_VARIANT[campaign.status] ?? 'muted';
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-colors">
+    <Card className="group p-5 transition-colors hover:border-border/80">
       {/* Header */}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex-1 min-w-0">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Link href={`/portfolio/${campaign.id}`} className="font-semibold text-white truncate hover:text-blue-400">
+            <Link
+              href={`/portfolio/${campaign.id}`}
+              className="truncate text-sm font-semibold text-foreground hover:text-accent"
+            >
               {campaign.name}
             </Link>
-            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${statusBadge(campaign.status)}`}>{campaign.status}</span>
+            <Badge variant={statusVariant}>{campaign.status}</Badge>
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">{campaign.campaign_type} &middot; {fmt(campaign.budget_amount_micros)}/day &middot; {campaign.ad_groups_count} ad groups</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {campaign.campaign_type} · {fmt(campaign.budget_amount_micros)}/day ·{' '}
+            {campaign.ad_groups_count} ad group
+            {campaign.ad_groups_count === 1 ? '' : 's'}
+          </p>
         </div>
-        <div className={`w-10 h-10 rounded-lg ${health.bgColor} flex items-center justify-center shrink-0`}>
-          <span className="text-white font-bold text-lg">{health.grade}</span>
+        <div
+          className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-lg font-bold',
+            toneClass[health.tone],
+          )}
+          aria-label={`Health grade ${health.grade}`}
+        >
+          {health.grade}
         </div>
       </div>
 
-      {/* Metrics */}
-      <div className="grid grid-cols-4 gap-3 mb-3">
-        <div><p className="text-[10px] text-gray-500">Impressions</p><p className="text-sm font-semibold">{stats?.impressions?.toLocaleString() || '—'}</p></div>
-        <div><p className="text-[10px] text-gray-500">Clicks</p><p className="text-sm font-semibold">{stats?.clicks?.toLocaleString() || '—'}</p></div>
-        <div><p className="text-[10px] text-gray-500">CTR</p><p className="text-sm font-semibold">{stats ? `${((stats.ctr || 0) * 100).toFixed(1)}%` : '—'}</p></div>
-        <div><p className="text-[10px] text-gray-500">Conv.</p><p className="text-sm font-semibold">{stats ? stats.conversions : '—'}</p></div>
+      {/* Metric row */}
+      <div className="mb-3 grid grid-cols-4 gap-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Impressions
+          </p>
+          <p className="text-sm font-semibold text-foreground">
+            {stats?.impressions?.toLocaleString() || '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Clicks
+          </p>
+          <p className="text-sm font-semibold text-foreground">
+            {stats?.clicks?.toLocaleString() || '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            CTR
+          </p>
+          <p className="text-sm font-semibold text-foreground">
+            {stats ? `${((stats.ctr || 0) * 100).toFixed(1)}%` : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Conv
+          </p>
+          <p className="text-sm font-semibold text-foreground">
+            {stats ? stats.conversions : '—'}
+          </p>
+        </div>
       </div>
 
       {/* Spend bar */}
       <div className="mb-3">
-        <div className="flex justify-between text-[10px] text-gray-500 mb-1">
-          <span>Spend: {stats ? fmt(stats.cost_micros) : '$0'}</span>
-          <span>{spendPct}% utilized</span>
+        <div className="mb-1 flex items-center justify-between text-[10px]">
+          <span className="text-muted-foreground">
+            Spend: {stats ? fmt(stats.cost_micros) : '$0'}
+          </span>
+          <span className="font-mono font-semibold text-foreground">
+            {spendPct}% utilized
+          </span>
         </div>
-        <div className="w-full h-1.5 bg-gray-800 rounded-full">
-          <div className={`h-1.5 rounded-full ${spendPct > 90 ? 'bg-red-500' : spendPct > 60 ? 'bg-blue-500' : 'bg-gray-600'}`} style={{ width: `${spendPct}%` }} />
-        </div>
+        <Progress value={spendPct} />
       </div>
 
       {/* Recommendation */}
-      <div className="flex items-start gap-2 p-2.5 bg-gray-800/50 rounded-lg mb-3">
-        <Zap className="w-3.5 h-3.5 text-yellow-400 mt-0.5 shrink-0" />
-        <p className="text-xs text-gray-400 leading-relaxed">{recommendation}</p>
+      <div className="mb-3 flex items-start gap-2 rounded-md border border-border bg-muted/30 p-2.5">
+        <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {recommendation}
+        </p>
       </div>
 
       {/* Actions */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href={`/portfolio/${campaign.id}`} className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300">
-            View Details <ArrowRight className="w-3 h-3" />
-          </Link>
-          <button
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href={`/portfolio/${campaign.id}`}>
+              View details
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => {
-              const msg = encodeURIComponent(`Analyze the campaign "${campaign.name}" — what's working, what's not, and what should I change?`);
+              const msg = encodeURIComponent(
+                `Analyze the campaign "${campaign.name}" — what's working, what's not, and what should I change?`,
+              );
               router.push(`/chat?prefill=${msg}`);
             }}
-            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-blue-400"
           >
-            <MessageSquare className="w-3.5 h-3.5" /> Chat
-          </button>
+            <MessageSquare className="h-3.5 w-3.5" />
+            Chat
+          </Button>
           {campaign.google_campaign_id && (
-            <a href={`https://ads.google.com/aw/campaigns?campaignId=${campaign.google_campaign_id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-green-400">
-              <ExternalLink className="w-3.5 h-3.5" /> Google Ads
-            </a>
+            <Button variant="ghost" size="sm" asChild>
+              <a
+                href={`https://ads.google.com/aw/campaigns?campaignId=${campaign.google_campaign_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Google Ads
+              </a>
+            </Button>
           )}
         </div>
-        <button onClick={onDelete} className="flex items-center gap-1.5 text-xs text-red-400/50 hover:text-red-400">
-          <Trash2 className="w-3.5 h-3.5" /> Delete
-        </button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onDelete}
+          className="h-7 w-7 text-muted-foreground hover:text-critical"
+          aria-label={`Delete ${campaign.name}`}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
 // ============================================================
-// Main Page
+// Main page
 // ============================================================
 
 export default function PortfolioPage() {
   const [campaigns, setCampaigns] = useState<CampaignWithStats[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'active' | 'paused' | 'draft'>('all');
-  const [sortBy, setSortBy] = useState<'health' | 'spend' | 'conversions' | 'name'>('health');
+  const [filter, setFilter] = useState<'all' | 'active' | 'paused' | 'draft'>(
+    'all',
+  );
+  const [sortBy, setSortBy] = useState<
+    'health' | 'spend' | 'conversions' | 'name'
+  >('health');
   const [searchQuery, setSearchQuery] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   const fetchCampaigns = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/campaigns?status=all');
-      const data = await res.json();
+      const data = await api.get<CampaignWithStats[]>(
+        '/api/campaigns?status=all',
+      );
       setCampaigns(Array.isArray(data) ? data : []);
-    } catch { setCampaigns([]); }
-    setLoading(false);
+    } catch {
+      setCampaigns([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { fetchCampaigns(); }, [fetchCampaigns]);
+  useEffect(() => {
+    fetchCampaigns();
+  }, [fetchCampaigns]);
 
   async function handleDelete() {
     if (!deleteTarget) return;
-    await fetch(`/api/campaigns/${deleteTarget.id}?hard=true`, { method: 'DELETE' });
-    setDeleteTarget(null);
-    fetchCampaigns();
+    try {
+      await api.delete(`/api/campaigns/${deleteTarget.id}?hard=true`);
+      toast.success(`Deleted "${deleteTarget.name}"`);
+      fetchCampaigns();
+    } catch {
+      /* api-client toast */
+    } finally {
+      setDeleteTarget(null);
+    }
   }
 
   const filtered = campaigns.filter((c) => {
     if (filter !== 'all' && c.status !== filter) return false;
-    if (searchQuery && !c.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery && !c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      return false;
     return true;
   });
+
   const sorted = [...filtered].sort((a, b) => {
     switch (sortBy) {
-      case 'health': return calculateHealthGrade(b).score - calculateHealthGrade(a).score;
-      case 'spend': return (b.stats?.cost_micros || 0) - (a.stats?.cost_micros || 0);
-      case 'conversions': return (b.stats?.conversions || 0) - (a.stats?.conversions || 0);
-      case 'name': return a.name.localeCompare(b.name);
-      default: return 0;
+      case 'health':
+        return calculateHealthGrade(b).score - calculateHealthGrade(a).score;
+      case 'spend':
+        return (b.stats?.cost_micros || 0) - (a.stats?.cost_micros || 0);
+      case 'conversions':
+        return (b.stats?.conversions || 0) - (a.stats?.conversions || 0);
+      case 'name':
+        return a.name.localeCompare(b.name);
+      default:
+        return 0;
     }
   });
 
-  const m: PortfolioMetrics = {
-    total_spend: campaigns.reduce((s, c) => s + (c.stats?.cost_micros || 0), 0),
-    total_conversions: campaigns.reduce((s, c) => s + (c.stats?.conversions || 0), 0),
-    total_clicks: campaigns.reduce((s, c) => s + (c.stats?.clicks || 0), 0),
-    total_impressions: campaigns.reduce((s, c) => s + (c.stats?.impressions || 0), 0),
-    avg_cpa: null, avg_ctr: 0,
-    campaign_count: campaigns.length,
-    active_count: campaigns.filter((c) => c.status === 'active').length,
-  };
-  if (m.total_conversions > 0) m.avg_cpa = m.total_spend / m.total_conversions;
-  if (m.total_impressions > 0) m.avg_ctr = m.total_clicks / m.total_impressions;
+  const metrics = useMemo(() => {
+    const total_spend = campaigns.reduce(
+      (s, c) => s + (c.stats?.cost_micros || 0),
+      0,
+    );
+    const total_conversions = campaigns.reduce(
+      (s, c) => s + (c.stats?.conversions || 0),
+      0,
+    );
+    const total_clicks = campaigns.reduce(
+      (s, c) => s + (c.stats?.clicks || 0),
+      0,
+    );
+    const total_impressions = campaigns.reduce(
+      (s, c) => s + (c.stats?.impressions || 0),
+      0,
+    );
+    const avg_cpa = total_conversions > 0 ? total_spend / total_conversions : null;
+    const avg_ctr = total_impressions > 0 ? total_clicks / total_impressions : 0;
+    const active_count = campaigns.filter((c) => c.status === 'active').length;
+    return {
+      total_spend,
+      total_conversions,
+      total_clicks,
+      total_impressions,
+      avg_cpa,
+      avg_ctr,
+      campaign_count: campaigns.length,
+      active_count,
+    };
+  }, [campaigns]);
+
   const overallGrade = getOverallGrade(campaigns);
-  const wastedSpend = campaigns.filter((c) => c.stats && c.stats.cost_micros > 0 && c.stats.conversions === 0).reduce((s, c) => s + (c.stats?.cost_micros || 0), 0);
-  const spendByCampaign = campaigns.filter((c) => c.stats && c.stats.cost_micros > 0).sort((a, b) => (b.stats?.cost_micros || 0) - (a.stats?.cost_micros || 0));
+  const wastedSpend = campaigns
+    .filter((c) => c.stats && c.stats.cost_micros > 0 && c.stats.conversions === 0)
+    .reduce((s, c) => s + (c.stats?.cost_micros || 0), 0);
+  const spendByCampaign = campaigns
+    .filter((c) => c.stats && c.stats.cost_micros > 0)
+    .sort((a, b) => (b.stats?.cost_micros || 0) - (a.stats?.cost_micros || 0));
 
   return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <PieChart className="w-7 h-7 text-blue-400" />
-          <div>
-            <h1 className="text-2xl font-bold">Portfolio</h1>
-            <p className="text-sm text-gray-500">Campaign health, budget flow, and management</p>
-          </div>
-        </div>
-        <button onClick={fetchCampaigns} disabled={loading} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          Refresh
-        </button>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        icon={<PieChart className="h-5 w-5" />}
+        title="Portfolio"
+        description="Campaign health, budget flow, and management."
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchCampaigns}
+            disabled={loading}
+            aria-label="Refresh campaigns"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Refresh
+          </Button>
+        }
+      />
 
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex items-center gap-4">
-          <div className={`w-16 h-16 rounded-xl ${overallGrade.bgColor} flex items-center justify-center`}>
-            <span className="text-white font-bold text-3xl">{overallGrade.grade}</span>
-          </div>
-          <div>
-            <p className="text-sm text-gray-400">Portfolio Health</p>
-            <p className="text-lg font-bold">{overallGrade.score}/100</p>
-            <p className="text-xs text-gray-500">{m.active_count} active of {m.campaign_count}</p>
-          </div>
+      {/* Overview metrics */}
+      {loading && campaigns.length === 0 ? (
+        <SkeletonMetricGrid count={4} />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="flex items-center gap-4 p-5">
+            <div
+              className={cn(
+                'flex h-14 w-14 shrink-0 items-center justify-center rounded-md text-3xl font-bold',
+                toneClass[overallGrade.tone],
+              )}
+            >
+              {overallGrade.grade}
+            </div>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Portfolio health
+              </p>
+              <p className="mt-0.5 text-xl font-semibold text-foreground">
+                {overallGrade.score}/100
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {metrics.active_count} active of {metrics.campaign_count}
+              </p>
+            </div>
+          </Card>
+          <MetricCard
+            label="Total spend (30d)"
+            value={fmt(metrics.total_spend)}
+            icon={<DollarSign className="h-4 w-4" />}
+            accent="primary"
+            deltaPct={null}
+          />
+          <MetricCard
+            label="Conversions"
+            value={metrics.total_conversions.toFixed(1)}
+            icon={<Target className="h-4 w-4" />}
+            accent="success"
+            deltaPct={null}
+          />
+          <MetricCard
+            label="Avg CTR"
+            value={`${(metrics.avg_ctr * 100).toFixed(2)}%`}
+            icon={<TrendingUp className="h-4 w-4" />}
+            accent="accent"
+            deltaPct={null}
+          />
         </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-          <p className="text-xs text-gray-400 mb-1">Total Spend (30d)</p>
-          <p className="text-2xl font-bold">{fmt(m.total_spend)}</p>
-          {wastedSpend > 0 && <p className="text-xs text-red-400 flex items-center gap-1 mt-1"><AlertTriangle className="w-3 h-3" />{fmt(wastedSpend)} wasted</p>}
-        </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-          <p className="text-xs text-gray-400 mb-1">Conversions</p>
-          <p className="text-2xl font-bold">{m.total_conversions.toFixed(1)}</p>
-          <p className="text-xs text-gray-500">CPA: {m.avg_cpa ? fmt(m.avg_cpa) : '—'}</p>
-        </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-          <p className="text-xs text-gray-400 mb-1">Avg CTR</p>
-          <p className="text-2xl font-bold">{(m.avg_ctr * 100).toFixed(2)}%</p>
-          <p className="text-xs text-gray-500">{m.total_clicks.toLocaleString()} clicks / {m.total_impressions.toLocaleString()} impr.</p>
-        </div>
-      </div>
+      )}
 
-      {/* Budget Flow */}
+      {/* Wasted spend callout */}
+      {wastedSpend > 0 && (
+        <Card className="border-critical/30 bg-critical/5">
+          <div className="flex items-center gap-3 p-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-critical/15 text-critical">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-foreground">
+                {fmt(wastedSpend)} spent without conversions
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Campaigns with zero returns — review landing pages or pause.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Budget flow */}
       {spendByCampaign.length > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Budget Flow</h2>
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <MousePointerClick className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold text-foreground">
+              Budget flow
+            </h2>
+            <span className="text-xs text-muted-foreground">
+              · spend distribution across campaigns
+            </span>
+          </div>
           <div className="space-y-2">
             {spendByCampaign.map((c) => {
-              const pct = m.total_spend > 0 ? (c.stats!.cost_micros / m.total_spend) * 100 : 0;
+              const pct =
+                metrics.total_spend > 0
+                  ? (c.stats!.cost_micros / metrics.total_spend) * 100
+                  : 0;
               const hasConv = (c.stats?.conversions || 0) > 0;
               return (
                 <div key={c.id} className="flex items-center gap-3">
-                  <span className="text-xs text-gray-400 w-40 truncate">{c.name}</span>
-                  <div className="flex-1 h-5 bg-gray-800 rounded-full overflow-hidden">
-                    <div className={`h-5 rounded-full flex items-center px-2 ${hasConv ? 'bg-blue-600/60' : 'bg-red-600/40'}`} style={{ width: `${Math.max(pct, 3)}%` }}>
-                      <span className="text-[10px] text-white font-medium whitespace-nowrap">{fmt(c.stats!.cost_micros)} ({pct.toFixed(0)}%)</span>
+                  <span className="w-40 truncate text-xs text-muted-foreground">
+                    {c.name}
+                  </span>
+                  <div className="relative h-5 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn(
+                        'flex h-5 items-center rounded-full px-2',
+                        hasConv ? 'bg-info/60' : 'bg-critical/40',
+                      )}
+                      style={{ width: `${Math.max(pct, 3)}%` }}
+                    >
+                      <span className="whitespace-nowrap text-[10px] font-medium text-foreground">
+                        {fmt(c.stats!.cost_micros)} ({pct.toFixed(0)}%)
+                      </span>
                     </div>
                   </div>
-                  <span className="text-xs w-16 text-right">{c.stats?.conversions || 0} conv.</span>
-                  {!hasConv && <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+                  <span className="w-16 text-right text-xs text-foreground">
+                    {c.stats?.conversions || 0} conv
+                  </span>
+                  {!hasConv && (
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-critical" />
+                  )}
                 </div>
               );
             })}
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* Search + Filters */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search campaigns..." className="pl-9 pr-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white w-48 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:w-64 transition-all" />
+      {/* Filters */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="relative max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search campaigns…"
+              className="h-8 w-56 pl-8"
+            />
           </div>
-          <div className="flex gap-2">
-            {(['all', 'active', 'paused', 'draft'] as const).map((f) => (
-              <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 text-sm rounded-lg capitalize ${filter === f ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
-                {f} ({f === 'all' ? campaigns.length : campaigns.filter((c) => c.status === f).length})
-              </button>
-            ))}
-          </div>
+          <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
+            <TabsList>
+              <TabsTrigger value="all">
+                All ({campaigns.length})
+              </TabsTrigger>
+              <TabsTrigger value="active">
+                Active ({campaigns.filter((c) => c.status === 'active').length})
+              </TabsTrigger>
+              <TabsTrigger value="paused">
+                Paused ({campaigns.filter((c) => c.status === 'paused').length})
+              </TabsTrigger>
+              <TabsTrigger value="draft">
+                Draft ({campaigns.filter((c) => c.status === 'draft').length})
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <span>Sort:</span>
-          {(['health', 'spend', 'conversions', 'name'] as const).map((s) => (
-            <button key={s} onClick={() => setSortBy(s)} className={`px-2 py-1 rounded capitalize ${sortBy === s ? 'bg-gray-800 text-white' : 'hover:text-white'}`}>{s}</button>
-          ))}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Sort by</span>
+          <Select
+            value={sortBy}
+            onValueChange={(v) => setSortBy(v as typeof sortBy)}
+          >
+            <SelectTrigger className="h-8 w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="health">Health</SelectItem>
+              <SelectItem value="spend">Spend</SelectItem>
+              <SelectItem value="conversions">Conversions</SelectItem>
+              <SelectItem value="name">Name</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      {/* Campaign Cards */}
+      {/* Campaign cards */}
       {loading ? (
-        <div className="text-gray-500 text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" /> Loading...</div>
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
       ) : sorted.length > 0 ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {sorted.map((c) => <CampaignCard key={c.id} campaign={c} onDelete={() => setDeleteTarget({ id: c.id, name: c.name })} />)}
+        <div className="grid gap-4 lg:grid-cols-2">
+          {sorted.map((c) => (
+            <CampaignCard
+              key={c.id}
+              campaign={c}
+              onDelete={() => setDeleteTarget({ id: c.id, name: c.name })}
+            />
+          ))}
         </div>
       ) : (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
-          <PieChart className="w-12 h-12 text-gray-700 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-gray-300 mb-2">No campaigns yet</h2>
-          <p className="text-gray-500 text-sm mb-4">Tell the AI to create your first campaign.</p>
-          <Link href="/chat" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg"><MessageSquare className="w-4 h-4" /> Open AI Chat</Link>
-        </div>
+        <EmptyState
+          icon={<PieChart className="h-6 w-6" />}
+          title="No campaigns yet"
+          description="Tell the AI to create your first campaign — describe your goals in plain English."
+          action={
+            <Button asChild>
+              <Link href="/chat">
+                <MessageSquare className="h-4 w-4" />
+                Open AI chat
+              </Link>
+            </Button>
+          }
+        />
       )}
 
-      {deleteTarget && <DeleteModal name={deleteTarget.name} onConfirm={handleDelete} onCancel={() => setDeleteTarget(null)} />}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={`Delete "${deleteTarget?.name}"?`}
+        description="This permanently removes the campaign and all its ad groups, ads, and keywords. This cannot be undone."
+        confirmLabel="Delete permanently"
+        destructive
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

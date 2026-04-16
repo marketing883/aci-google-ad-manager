@@ -3,6 +3,7 @@ import { createLogger } from '../utils/logger';
 import { CONFIG } from '../config';
 import type { QAError } from './base-agent';
 import type { CampaignBlueprint, AdCopyVariants, ResearchOutput } from '@/schemas/agent-output';
+import type { Recommendation, RiskTier } from '@/schemas/approval';
 
 const logger = createLogger('QASentinel');
 
@@ -490,6 +491,233 @@ export class QASentinel {
     }
 
     return { output, qaResult, retries };
+  }
+
+  // ============================================================
+  // Recommendation validation — OptimizerAgent output gate
+  //
+  // Every recommendation the OptimizerAgent produces goes through this
+  // before being written to `approval_queue`. Responsibilities:
+  //
+  //   1. REJECT obviously-unsafe proposals (errors populated → caller
+  //      skips the recommendation and logs it).
+  //   2. DOWNGRADE the risk_tier if the recommendation crossed a threshold
+  //      the agent didn't account for (e.g. a bid change the agent marked
+  //      'auto' but the delta is +32% — we force 'review').
+  //   3. WARN on things the reviewer should know but that aren't fatal.
+  //
+  // Thresholds per plan:
+  //   - Bid change: auto ≤ ±15%, review ≤ ±25%, blocked > ±25% or absolute
+  //     bid > qa_max_keyword_bid_micros
+  //   - Budget change: auto ≤ ±20%, review ≤ ±50%, blocked > ±50% or new
+  //     budget > qa_block_budget_daily_micros
+  //   - Pause keyword with historical conversions: always review
+  //   - Add negative keyword: always auto-eligible
+  //   - Campaign pause/enable, create_*, update_ad: always review
+  // ============================================================
+  async validateRecommendation(rec: Recommendation): Promise<{
+    passed: boolean;
+    errors: QAError[];
+    warnings: QAError[];
+    riskTier: RiskTier;
+  }> {
+    const settings = await this.getSettings();
+    const errors: QAError[] = [];
+    const warnings: QAError[] = [];
+    let riskTier: RiskTier = rec.risk_tier;
+
+    // Helper — downgrade tier toward stricter. "auto" → "review" → "blocked".
+    const downgrade = (target: RiskTier) => {
+      const order: Record<RiskTier, number> = { auto: 0, review: 1, blocked: 2 };
+      if (order[target] > order[riskTier]) riskTier = target;
+    };
+
+    switch (rec.action_type) {
+      case 'update_bid': {
+        const newBid =
+          (rec.payload.cpc_bid_micros as number | undefined) ??
+          (rec.payload.new_bid_micros as number | undefined) ??
+          0;
+        const oldBid =
+          (rec.previous_state?.cpc_bid_micros as number | undefined) ?? 0;
+
+        if (newBid <= 0) {
+          errors.push({
+            field: 'payload.cpc_bid_micros',
+            message: 'Bid must be positive',
+            severity: 'error',
+          });
+          break;
+        }
+
+        if (newBid > settings.qa_max_keyword_bid_micros) {
+          errors.push({
+            field: 'payload.cpc_bid_micros',
+            message: `Bid of $${(newBid / 1_000_000).toFixed(2)} exceeds max of $${(settings.qa_max_keyword_bid_micros / 1_000_000).toFixed(2)}`,
+            severity: 'error',
+            suggestion: 'Lower the bid or raise qa_max_keyword_bid_micros in Settings',
+          });
+          downgrade('blocked');
+          break;
+        }
+
+        if (oldBid > 0) {
+          const deltaPct = Math.abs((newBid - oldBid) / oldBid) * 100;
+          if (deltaPct > 25) {
+            errors.push({
+              field: 'payload.cpc_bid_micros',
+              message: `Bid change of ${deltaPct.toFixed(1)}% exceeds the 25% single-run cap`,
+              severity: 'error',
+              suggestion: 'Split into multiple smaller adjustments over several runs',
+            });
+            downgrade('blocked');
+          } else if (deltaPct > 15) {
+            warnings.push({
+              field: 'payload.cpc_bid_micros',
+              message: `Bid change of ${deltaPct.toFixed(1)}% is above the 15% auto-apply threshold`,
+              severity: 'warning',
+            });
+            downgrade('review');
+          }
+        } else {
+          // Can't compute delta without prior bid — default to review.
+          downgrade('review');
+        }
+        break;
+      }
+
+      case 'update_campaign_budget': {
+        const newBudget =
+          (rec.payload.budget_amount_micros as number | undefined) ??
+          (rec.payload.budget_micros as number | undefined) ??
+          0;
+        const oldBudget =
+          (rec.previous_state?.budget_amount_micros as number | undefined) ?? 0;
+
+        if (newBudget <= 0) {
+          errors.push({
+            field: 'payload.budget_amount_micros',
+            message: 'Budget must be positive',
+            severity: 'error',
+          });
+          break;
+        }
+
+        if (newBudget > settings.qa_block_budget_daily_micros * 10) {
+          // Extra-zero detection — same pattern as validateCampaign.
+          errors.push({
+            field: 'payload.budget_amount_micros',
+            message: `Budget of $${(newBudget / 1_000_000).toLocaleString()}/day is extremely high. Likely an extra-zero error.`,
+            severity: 'error',
+            suggestion: `Reduce to $${(newBudget / 10_000_000).toLocaleString()}/day (divided by 10)`,
+          });
+          downgrade('blocked');
+          break;
+        }
+
+        if (newBudget > settings.qa_block_budget_daily_micros) {
+          errors.push({
+            field: 'payload.budget_amount_micros',
+            message: `Budget of $${(newBudget / 1_000_000).toLocaleString()}/day exceeds the hard limit of $${(settings.qa_block_budget_daily_micros / 1_000_000).toLocaleString()}/day`,
+            severity: 'error',
+            suggestion: `Reduce to $${(settings.qa_block_budget_daily_micros / 1_000_000).toLocaleString()}/day or below`,
+          });
+          downgrade('blocked');
+          break;
+        }
+
+        if (oldBudget > 0) {
+          const deltaPct = Math.abs((newBudget - oldBudget) / oldBudget) * 100;
+          if (deltaPct > 50) {
+            errors.push({
+              field: 'payload.budget_amount_micros',
+              message: `Budget change of ${deltaPct.toFixed(1)}% exceeds the 50% single-run cap`,
+              severity: 'error',
+              suggestion: 'Split into two smaller adjustments over consecutive runs',
+            });
+            downgrade('blocked');
+          } else if (deltaPct > 20) {
+            warnings.push({
+              field: 'payload.budget_amount_micros',
+              message: `Budget change of ${deltaPct.toFixed(1)}% is above the 20% auto-apply threshold`,
+              severity: 'warning',
+            });
+            downgrade('review');
+          }
+        } else {
+          downgrade('review');
+        }
+
+        if (newBudget > settings.qa_warn_budget_daily_micros) {
+          warnings.push({
+            field: 'payload.budget_amount_micros',
+            message: `New budget of $${(newBudget / 1_000_000).toLocaleString()}/day is above the warning threshold of $${(settings.qa_warn_budget_daily_micros / 1_000_000).toLocaleString()}/day`,
+            severity: 'warning',
+          });
+        }
+        break;
+      }
+
+      case 'pause_keyword': {
+        // Auto-eligible ONLY if the keyword has 0 historical conversions.
+        // The OptimizerAgent looks this up before producing the rec, but we
+        // re-verify from previous_state so the gate is authoritative.
+        const historicalConversions =
+          (rec.previous_state?.conversions_30d as number | undefined) ??
+          (rec.previous_state?.conversions as number | undefined) ??
+          0;
+        if (historicalConversions > 0) {
+          warnings.push({
+            field: 'action_type',
+            message: `Keyword has ${historicalConversions} conversion(s) in the lookback window — pausing should be human-reviewed`,
+            severity: 'warning',
+          });
+          downgrade('review');
+        }
+        break;
+      }
+
+      case 'add_negative_keyword':
+        // Always auto-eligible. Negative keywords are low-risk.
+        break;
+
+      case 'pause_campaign':
+      case 'enable_campaign':
+      case 'update_campaign_status':
+      case 'update_ad':
+      case 'create_ad':
+      case 'create_campaign':
+      case 'create_ad_group':
+        // All creation + campaign-status changes require human review.
+        downgrade('review');
+        break;
+
+      default: {
+        // Unknown action — default to review, add warning so the caller
+        // can decide whether to ship or extend the switch.
+        warnings.push({
+          field: 'action_type',
+          message: `Unknown action_type "${rec.action_type}" — defaulting to review`,
+          severity: 'warning',
+        });
+        downgrade('review');
+      }
+    }
+
+    if (errors.length > 0) {
+      logger.warn(`Rejected recommendation from ${rec.optimization_source}`, {
+        action: rec.action_type,
+        entity: `${rec.entity_type}:${rec.entity_id ?? 'new'}`,
+        errors: errors.map((e) => e.message),
+      });
+    }
+
+    return {
+      passed: errors.length === 0,
+      errors,
+      warnings,
+      riskTier,
+    };
   }
 }
 

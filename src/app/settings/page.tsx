@@ -1,94 +1,168 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Settings, Link2, Brain, Clock, Loader2, CheckCircle, Building2, Plus, X } from 'lucide-react';
+import {
+  BarChart3,
+  Brain,
+  Building2,
+  CheckCircle,
+  Clock,
+  ExternalLink,
+  Link2,
+  Loader2,
+  Plus,
+  ScrollText,
+  Settings as SettingsIcon,
+  X,
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { api } from '@/lib/api-client';
+
+interface Service {
+  name: string;
+  landing_page: string;
+  description: string;
+}
+interface Competitor {
+  name: string;
+  domain: string;
+}
+interface CompanyProfile {
+  company_name: string;
+  domain: string;
+  tagline: string;
+  services: Service[];
+  differentiators: string[];
+  target_industries: string[];
+  known_competitors: Competitor[];
+  brand_terms: string[];
+  default_negative_keywords: string[];
+  tone: string;
+}
+
+const emptyProfile: CompanyProfile = {
+  company_name: '',
+  domain: '',
+  tagline: '',
+  services: [],
+  differentiators: [],
+  target_industries: [],
+  known_competitors: [],
+  brand_terms: [],
+  default_negative_keywords: [],
+  tone: '',
+};
+
+function SectionCard({
+  icon,
+  title,
+  description,
+  children,
+  action,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <Card className="p-6">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/40 text-muted-foreground">
+            {icon}
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-foreground">{title}</h2>
+            {description && (
+              <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+            )}
+          </div>
+        </div>
+        {action}
+      </div>
+      <div className="space-y-4">{children}</div>
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set());
-
-  // Company profile state
-  interface Service { name: string; landing_page: string; description: string }
-  interface Competitor { name: string; domain: string }
-  interface CompanyProfile {
-    company_name: string; domain: string; tagline: string;
-    services: Service[]; differentiators: string[];
-    target_industries: string[]; known_competitors: Competitor[];
-    brand_terms: string[]; default_negative_keywords: string[];
-    tone: string;
-  }
-  const emptyProfile: CompanyProfile = {
-    company_name: '', domain: '', tagline: '', services: [],
-    differentiators: [], target_industries: [], known_competitors: [],
-    brand_terms: [], default_negative_keywords: [], tone: '',
-  };
   const [profile, setProfile] = useState<CompanyProfile>(emptyProfile);
+  const [profileDirty, setProfileDirty] = useState(false);
 
-  function loadProfile(s: Record<string, unknown>) {
-    if (s.company_profile && typeof s.company_profile === 'object') {
-      setProfile({ ...emptyProfile, ...(s.company_profile as Partial<CompanyProfile>) });
+  const fetchSettings = useCallback(async () => {
+    try {
+      const data = await api.get<Record<string, unknown>>('/api/settings');
+      setSettings(data);
+      if (data.company_profile && typeof data.company_profile === 'object') {
+        setProfile({
+          ...emptyProfile,
+          ...(data.company_profile as Partial<CompanyProfile>),
+        });
+      }
+    } catch {
+      toast.error('Could not load settings');
     }
-  }
+  }, []);
+
+  const checkConnection = useCallback(async () => {
+    try {
+      const data = await api.get<{ connected: boolean }>(
+        '/api/google-ads/auth/status',
+      );
+      setConnected(data.connected);
+    } catch {
+      /* silent */
+    }
+  }, []);
 
   useEffect(() => {
     fetchSettings();
     checkConnection();
-  }, []);
-
-  async function fetchSettings() {
-    try {
-      const res = await fetch('/api/settings');
-      if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
-      const data = await res.json();
-      setSettings(data);
-      loadProfile(data);
-    } catch (e) {
-      setSaveError(`Could not load settings: ${(e as Error).message}`);
-    }
-  }
-
-  async function checkConnection() {
-    try {
-      const res = await fetch('/api/google-ads/auth/status');
-      const data = await res.json();
-      setConnected(data.connected);
-    } catch { /* ignore */ }
-  }
+  }, [fetchSettings, checkConnection]);
 
   async function handleSave() {
     setSaving(true);
-    setSaved(false);
-    setSaveError(null);
     try {
-      // Only send changed settings + company profile (always include profile)
-      const toSave: Record<string, unknown> = { company_profile: profile };
+      const toSave: Record<string, unknown> = {};
+      if (profileDirty) toSave.company_profile = profile;
       for (const key of dirtyKeys) {
         toSave[key] = settings[key];
       }
-
-      const res = await fetch('/api/settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(toSave),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Save failed' }));
-        throw new Error(err.error || `Save failed (${res.status})`);
+      if (Object.keys(toSave).length === 0) {
+        toast.info('Nothing to save');
+        return;
       }
-
-      setSaved(true);
-      setDirtyKeys(new Set()); // Clear dirty tracking
-      setTimeout(() => setSaved(false), 3000);
-    } catch (e) {
-      setSaveError((e as Error).message);
+      await api.patch('/api/settings', toSave);
+      toast.success('Settings saved');
+      setDirtyKeys(new Set());
+      setProfileDirty(false);
+    } catch {
+      /* api-client toast */
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   function updateSetting(key: string, value: unknown) {
@@ -96,203 +170,523 @@ export default function SettingsPage() {
     setDirtyKeys((prev) => new Set(prev).add(key));
   }
 
+  function updateProfile<K extends keyof CompanyProfile>(
+    key: K,
+    value: CompanyProfile[K],
+  ) {
+    setProfile((p) => ({ ...p, [key]: value }));
+    setProfileDirty(true);
+  }
+
+  const hasDirty = dirtyKeys.size > 0 || profileDirty;
+
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-8">
-        <Settings className="w-7 h-7 text-blue-400" />
-        <h1 className="text-2xl font-bold">Settings</h1>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        icon={<SettingsIcon className="h-5 w-5" />}
+        title="Settings"
+        description="Connections, brand voice, automation guardrails, and agent configuration."
+        actions={
+          <Button onClick={handleSave} disabled={saving || !hasDirty}>
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : hasDirty ? (
+              <CheckCircle className="h-4 w-4" />
+            ) : null}
+            {saving ? 'Saving…' : hasDirty ? 'Save changes' : 'Saved'}
+          </Button>
+        }
+      />
 
-      <div className="max-w-3xl space-y-6">
+      <div className="max-w-4xl space-y-6">
         {/* Google Ads Connection */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <Link2 className="w-5 h-5 text-gray-400" />
-            <h2 className="text-lg font-semibold">Google Ads Connection</h2>
+        <SectionCard
+          icon={<Link2 className="h-4 w-4" />}
+          title="Google Ads connection"
+          description="OAuth link to the account your campaigns will push to."
+          action={
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/settings/connection">
+                {connected ? 'Manage' : 'Connect'}
+                <ExternalLink className="h-3 w-3" />
+              </Link>
+            </Button>
+          }
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className={`h-2 w-2 rounded-full ${connected ? 'bg-success' : 'bg-critical'}`}
+            />
+            <Badge variant={connected ? 'success' : 'critical'}>
+              {connected ? 'Connected' : 'Not connected'}
+            </Badge>
           </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2 mt-1">
-                <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className={`text-sm ${connected ? 'text-green-400' : 'text-red-400'}`}>{connected ? 'Connected' : 'Not Connected'}</span>
-              </div>
-            </div>
-            <Link href="/settings/connection" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors">
-              {connected ? 'Manage Connection' : 'Connect Account'}
-            </Link>
-          </div>
-        </div>
+        </SectionCard>
 
-        {/* Google Analytics Connection */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <Link2 className="w-5 h-5 text-gray-400" />
-            <h2 className="text-lg font-semibold">Google Analytics 4</h2>
+        {/* Google Analytics 4 */}
+        <SectionCard
+          icon={<BarChart3 className="h-4 w-4" />}
+          title="Google Analytics 4"
+          description="Property ID links your site analytics to the briefing and cross-insights."
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor="ga4">GA4 Property ID</Label>
+            <Input
+              id="ga4"
+              value={(settings.ga4_property_id as string) || ''}
+              onChange={(e) => updateSetting('ga4_property_id', e.target.value)}
+              placeholder="123456789"
+              className="max-w-xs"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Find this in GA4: Admin → Property Settings → Property ID. Just the number, no &ldquo;properties/&rdquo; prefix.
+            </p>
           </div>
+        </SectionCard>
+
+        {/* Company profile */}
+        <SectionCard
+          icon={<Building2 className="h-4 w-4" />}
+          title="Company profile"
+          description="Powers ad copy, keyword research, and competitor targeting."
+        >
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="company-name">Company name</Label>
+              <Input
+                id="company-name"
+                value={profile.company_name}
+                onChange={(e) => updateProfile('company_name', e.target.value)}
+                placeholder="ACI InfoTech"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="company-domain">Domain</Label>
+              <Input
+                id="company-domain"
+                value={profile.domain}
+                onChange={(e) => updateProfile('domain', e.target.value)}
+                placeholder="aciinfotech.com"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="company-tagline">Tagline</Label>
+              <Input
+                id="company-tagline"
+                value={profile.tagline}
+                onChange={(e) => updateProfile('tagline', e.target.value)}
+                placeholder="Microsoft partner — D365, Azure"
+              />
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-1.5">
+            <Label htmlFor="services">Services / Products</Label>
+            <Input
+              id="services"
+              value={profile.services.map((s) => s.name).join(', ')}
+              onChange={(e) =>
+                updateProfile(
+                  'services',
+                  e.target.value
+                    .split(',')
+                    .map((s) => ({
+                      name: s.trim(),
+                      landing_page: '',
+                      description: '',
+                    }))
+                    .filter((s) => s.name),
+                )
+              }
+              placeholder="Dynamics 365, Azure Cloud, Power Platform, AI Solutions"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Comma-separated. Used as seed keywords for research. Landing pages are provided per-campaign in chat.
+            </p>
+          </div>
+
           <div>
-            <label className="block text-sm text-gray-400 mb-1">GA4 Property ID</label>
-            <input type="text" value={(settings.ga4_property_id as string) || ''} onChange={(e) => updateSetting('ga4_property_id', e.target.value)} placeholder="123456789" className="w-64 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            <p className="text-[10px] text-gray-600 mt-1">Find this in GA4: Admin → Property Settings → Property ID. Just the number, no &quot;properties/&quot; prefix.</p>
-          </div>
-        </div>
-
-        {/* Company Profile */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-1">
-            <Building2 className="w-5 h-5 text-gray-400" />
-            <h2 className="text-lg font-semibold">Company Profile</h2>
-          </div>
-          <p className="text-xs text-gray-500 mb-5 ml-8">The AI uses this to write better ads, pick relevant keywords, and target your real competitors.</p>
-
-          <div className="space-y-5">
-            {/* Basic Info */}
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Company Name</label>
-                <input type="text" value={profile.company_name} onChange={(e) => setProfile((p) => ({ ...p, company_name: e.target.value }))} placeholder="ACI InfoTech" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Domain</label>
-                <input type="text" value={profile.domain} onChange={(e) => setProfile((p) => ({ ...p, domain: e.target.value }))} placeholder="aciinfotech.com" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Tagline</label>
-                <input type="text" value={profile.tagline} onChange={(e) => setProfile((p) => ({ ...p, tagline: e.target.value }))} placeholder="Microsoft partner — D365, Azure" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
+            <div className="mb-2 flex items-center justify-between">
+              <Label>Differentiators / USPs</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  updateProfile('differentiators', [...profile.differentiators, ''])
+                }
+              >
+                <Plus className="h-3 w-3" />
+                Add
+              </Button>
             </div>
-
-            {/* Services */}
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Services / Products (comma-separated)</label>
-              <input type="text" value={profile.services.map((s) => s.name).join(', ')} onChange={(e) => setProfile((p) => ({ ...p, services: e.target.value.split(',').map((s) => ({ name: s.trim(), landing_page: '', description: '' })).filter((s) => s.name) }))} placeholder="Dynamics 365, Azure Cloud, Power Platform, AI Solutions" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <p className="text-[10px] text-gray-600 mt-1">The AI uses these as seed keywords for research. Landing pages are provided per-campaign in chat.</p>
-            </div>
-
-            {/* Differentiators */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-gray-400">Differentiators / USPs (used in ad copy)</label>
-                <button onClick={() => setProfile((p) => ({ ...p, differentiators: [...p.differentiators, ''] }))} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>
-              </div>
+            <div className="space-y-2">
+              {profile.differentiators.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No differentiators yet. Add one so the AI can use it in ad copy.
+                </p>
+              )}
               {profile.differentiators.map((d, i) => (
-                <div key={i} className="flex gap-2 mb-2">
-                  <input type="text" value={d} onChange={(e) => { const arr = [...profile.differentiators]; arr[i] = e.target.value; setProfile((p) => ({ ...p, differentiators: arr })); }} placeholder="e.g., 15+ years Microsoft Gold Partner" className="flex-1 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <button onClick={() => setProfile((p) => ({ ...p, differentiators: p.differentiators.filter((_, j) => j !== i) }))} className="text-red-400/50 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
+                <div key={i} className="flex gap-2">
+                  <Input
+                    value={d}
+                    onChange={(e) => {
+                      const arr = [...profile.differentiators];
+                      arr[i] = e.target.value;
+                      updateProfile('differentiators', arr);
+                    }}
+                    placeholder="e.g. 15+ years Microsoft Gold Partner"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() =>
+                      updateProfile(
+                        'differentiators',
+                        profile.differentiators.filter((_, j) => j !== i),
+                      )
+                    }
+                    className="text-muted-foreground hover:text-critical"
+                    aria-label="Remove differentiator"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               ))}
-            </div>
-
-            {/* Target Industries + Known Competitors side by side */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Target Industries (comma-separated)</label>
-                <input type="text" value={profile.target_industries.join(', ')} onChange={(e) => setProfile((p) => ({ ...p, target_industries: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} placeholder="Manufacturing, Healthcare, Retail" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Brand Terms to Defend (comma-separated)</label>
-                <input type="text" value={profile.brand_terms.join(', ')} onChange={(e) => setProfile((p) => ({ ...p, brand_terms: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} placeholder="ACI InfoTech, ArqAI" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
-
-            {/* Known Competitors */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-gray-400">Known Competitors (for conquest targeting)</label>
-                <button onClick={() => setProfile((p) => ({ ...p, known_competitors: [...p.known_competitors, { name: '', domain: '' }] }))} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>
-              </div>
-              {profile.known_competitors.map((c, i) => (
-                <div key={i} className="flex gap-2 mb-2">
-                  <input type="text" value={c.name} onChange={(e) => { const arr = [...profile.known_competitors]; arr[i] = { ...arr[i], name: e.target.value }; setProfile((p) => ({ ...p, known_competitors: arr })); }} placeholder="Competitor name" className="w-48 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <input type="text" value={c.domain} onChange={(e) => { const arr = [...profile.known_competitors]; arr[i] = { ...arr[i], domain: e.target.value }; setProfile((p) => ({ ...p, known_competitors: arr })); }} placeholder="domain.com" className="flex-1 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <button onClick={() => setProfile((p) => ({ ...p, known_competitors: p.known_competitors.filter((_, j) => j !== i) }))} className="text-red-400/50 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
-                </div>
-              ))}
-            </div>
-
-            {/* Default Negatives + Tone */}
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Default Negative Keywords (auto-applied to all ad groups)</label>
-              <input type="text" value={profile.default_negative_keywords.join(', ')} onChange={(e) => setProfile((p) => ({ ...p, default_negative_keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} placeholder="jobs, careers, free, tutorial, training, certification" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Brand Voice / Tone</label>
-              <input type="text" value={profile.tone} onChange={(e) => setProfile((p) => ({ ...p, tone: e.target.value }))} placeholder="Professional, enterprise-focused, outcome-driven" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
-        </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="industries">Target industries</Label>
+              <Input
+                id="industries"
+                value={profile.target_industries.join(', ')}
+                onChange={(e) =>
+                  updateProfile(
+                    'target_industries',
+                    e.target.value
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  )
+                }
+                placeholder="Manufacturing, Healthcare, Retail"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="brand-terms">Brand terms to defend</Label>
+              <Input
+                id="brand-terms"
+                value={profile.brand_terms.join(', ')}
+                onChange={(e) =>
+                  updateProfile(
+                    'brand_terms',
+                    e.target.value
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  )
+                }
+                placeholder="ACI InfoTech, ArqAI"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <Label>Known competitors (for conquest targeting)</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  updateProfile('known_competitors', [
+                    ...profile.known_competitors,
+                    { name: '', domain: '' },
+                  ])
+                }
+              >
+                <Plus className="h-3 w-3" />
+                Add
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {profile.known_competitors.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No competitors set. Add some so the AI can track their moves.
+                </p>
+              )}
+              {profile.known_competitors.map((c, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    value={c.name}
+                    onChange={(e) => {
+                      const arr = [...profile.known_competitors];
+                      arr[i] = { ...arr[i], name: e.target.value };
+                      updateProfile('known_competitors', arr);
+                    }}
+                    placeholder="Competitor name"
+                    className="w-48"
+                  />
+                  <Input
+                    value={c.domain}
+                    onChange={(e) => {
+                      const arr = [...profile.known_competitors];
+                      arr[i] = { ...arr[i], domain: e.target.value };
+                      updateProfile('known_competitors', arr);
+                    }}
+                    placeholder="domain.com"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() =>
+                      updateProfile(
+                        'known_competitors',
+                        profile.known_competitors.filter((_, j) => j !== i),
+                      )
+                    }
+                    className="text-muted-foreground hover:text-critical"
+                    aria-label="Remove competitor"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="default-negatives">Default negative keywords</Label>
+            <Input
+              id="default-negatives"
+              value={profile.default_negative_keywords.join(', ')}
+              onChange={(e) =>
+                updateProfile(
+                  'default_negative_keywords',
+                  e.target.value
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                )
+              }
+              placeholder="jobs, careers, free, tutorial, training, certification"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Auto-applied to every new ad group.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="tone">Brand voice / tone</Label>
+            <Input
+              id="tone"
+              value={profile.tone}
+              onChange={(e) => updateProfile('tone', e.target.value)}
+              placeholder="Professional, enterprise-focused, outcome-driven"
+            />
+          </div>
+        </SectionCard>
 
         {/* AI Configuration */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-2">
-            <Brain className="w-5 h-5 text-gray-400" />
-            <h2 className="text-lg font-semibold">AI Configuration</h2>
-          </div>
-          <p className="text-xs text-gray-600 mb-3 ml-8">AI models are automatically selected per task: Sonnet for strategy and intelligence, Haiku for quick tasks, GPT-4o as fallback.</p>
-          <div className="ml-8 text-xs text-gray-500 space-y-1">
-            <div className="flex gap-4"><span className="w-32 text-gray-400">Research & Build</span><span>Claude Sonnet 4</span></div>
-            <div className="flex gap-4"><span className="w-32 text-gray-400">Quick tasks</span><span>Claude Haiku 3.5</span></div>
-            <div className="flex gap-4"><span className="w-32 text-gray-400">Fallback</span><span>GPT-4o / GPT-4o-mini</span></div>
-          </div>
-        </div>
+        <SectionCard
+          icon={<Brain className="h-4 w-4" />}
+          title="AI configuration"
+          description="Models are selected per task — Sonnet for strategy, Haiku for quick tasks, GPT-4o as fallback."
+        >
+          <dl className="grid grid-cols-1 gap-2 md:grid-cols-3">
+            <div className="rounded-md border border-border bg-muted/30 p-3">
+              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Research & build
+              </dt>
+              <dd className="mt-0.5 text-sm font-medium text-foreground">
+                Claude Sonnet 4
+              </dd>
+            </div>
+            <div className="rounded-md border border-border bg-muted/30 p-3">
+              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Quick tasks
+              </dt>
+              <dd className="mt-0.5 text-sm font-medium text-foreground">
+                Claude Haiku 3.5
+              </dd>
+            </div>
+            <div className="rounded-md border border-border bg-muted/30 p-3">
+              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Fallback
+              </dt>
+              <dd className="mt-0.5 text-sm font-medium text-foreground">
+                GPT-4o / mini
+              </dd>
+            </div>
+          </dl>
+        </SectionCard>
 
-        {/* QA Budget Thresholds */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <Clock className="w-5 h-5 text-gray-400" />
-            <h2 className="text-lg font-semibold">Budget Safety (QA Sentinel)</h2>
+        {/* Budget safety */}
+        <SectionCard
+          icon={<Clock className="h-4 w-4" />}
+          title="Budget safety (QA sentinel)"
+          description="Hard limits Ayn will never cross — review and adjust before enabling automatic actions."
+        >
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="warn-threshold">Warning threshold ($/day)</Label>
+              <Input
+                id="warn-threshold"
+                type="number"
+                value={
+                  typeof settings.qa_warn_budget_daily_micros === 'number'
+                    ? settings.qa_warn_budget_daily_micros / 1_000_000
+                    : 500
+                }
+                onChange={(e) =>
+                  updateSetting(
+                    'qa_warn_budget_daily_micros',
+                    parseFloat(e.target.value) * 1_000_000,
+                  )
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="block-threshold">Hard block ($/day)</Label>
+              <Input
+                id="block-threshold"
+                type="number"
+                value={
+                  typeof settings.qa_block_budget_daily_micros === 'number'
+                    ? settings.qa_block_budget_daily_micros / 1_000_000
+                    : 2000
+                }
+                onChange={(e) =>
+                  updateSetting(
+                    'qa_block_budget_daily_micros',
+                    parseFloat(e.target.value) * 1_000_000,
+                  )
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="max-bid">Max keyword bid ($)</Label>
+              <Input
+                id="max-bid"
+                type="number"
+                value={
+                  typeof settings.qa_max_keyword_bid_micros === 'number'
+                    ? settings.qa_max_keyword_bid_micros / 1_000_000
+                    : 50
+                }
+                onChange={(e) =>
+                  updateSetting(
+                    'qa_max_keyword_bid_micros',
+                    parseFloat(e.target.value) * 1_000_000,
+                  )
+                }
+              />
+            </div>
           </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Warning threshold ($/day)</label>
-              <input type="number" value={typeof settings.qa_warn_budget_daily_micros === 'number' ? settings.qa_warn_budget_daily_micros / 1_000_000 : 500} onChange={(e) => updateSetting('qa_warn_budget_daily_micros', parseFloat(e.target.value) * 1_000_000)} className="w-40 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Hard block threshold ($/day)</label>
-              <input type="number" value={typeof settings.qa_block_budget_daily_micros === 'number' ? settings.qa_block_budget_daily_micros / 1_000_000 : 2000} onChange={(e) => updateSetting('qa_block_budget_daily_micros', parseFloat(e.target.value) * 1_000_000)} className="w-40 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Max keyword bid ($)</label>
-              <input type="number" value={typeof settings.qa_max_keyword_bid_micros === 'number' ? settings.qa_max_keyword_bid_micros / 1_000_000 : 50} onChange={(e) => updateSetting('qa_max_keyword_bid_micros', parseFloat(e.target.value) * 1_000_000)} className="w-40 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-          </div>
-        </div>
+        </SectionCard>
 
         {/* Automation */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold mb-4">Automation</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Performance sync interval</label>
-              <select value={settings.sync_interval_hours as string || '6'} onChange={(e) => updateSetting('sync_interval_hours', parseInt(e.target.value))} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="6">Every 6 hours</option>
-                <option value="12">Every 12 hours</option>
-                <option value="24">Once daily</option>
-              </select>
+        <SectionCard
+          icon={<Clock className="h-4 w-4" />}
+          title="Automation"
+          description="When Ayn runs, and which of her recommendations apply automatically vs wait for your review."
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="sync-interval">Performance sync interval</Label>
+              <Select
+                value={String(settings.sync_interval_hours ?? 6)}
+                onValueChange={(v) =>
+                  updateSetting('sync_interval_hours', parseInt(v))
+                }
+              >
+                <SelectTrigger id="sync-interval">
+                  <SelectValue placeholder="Select interval" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="6">Every 6 hours</SelectItem>
+                  <SelectItem value="12">Every 12 hours</SelectItem>
+                  <SelectItem value="24">Once daily</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">
+                How often Google Ads performance data pulls down.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="auto-apply-mode">Auto-apply</Label>
+              <Select
+                value={
+                  // Derive single UI value from the two underlying settings
+                  (() => {
+                    const enabled = settings.auto_optimize_enabled === true;
+                    const tier = settings.auto_apply_risk_tier;
+                    if (!enabled) return 'off';
+                    if (tier === 'auto-and-review') return 'auto-and-review';
+                    return 'auto-only';
+                  })()
+                }
+                onValueChange={(v) => {
+                  // Write both underlying settings atomically.
+                  if (v === 'off') {
+                    updateSetting('auto_optimize_enabled', false);
+                    updateSetting('auto_apply_risk_tier', 'never');
+                  } else if (v === 'auto-only') {
+                    updateSetting('auto_optimize_enabled', true);
+                    updateSetting('auto_apply_risk_tier', 'auto');
+                  } else if (v === 'auto-and-review') {
+                    updateSetting('auto_optimize_enabled', true);
+                    updateSetting('auto_apply_risk_tier', 'auto-and-review');
+                  }
+                }}
+              >
+                <SelectTrigger id="auto-apply-mode">
+                  <SelectValue placeholder="Select auto-apply mode" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="off">Off — queue everything for review</SelectItem>
+                  <SelectItem value="auto-only">
+                    Apply safe changes (auto-tier only)
+                  </SelectItem>
+                  <SelectItem value="auto-and-review">
+                    Apply everything (auto + review tier)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">
+                Auto-tier changes are bid adjustments ≤±15%, negative-keyword
+                adds, and pauses on keywords with zero historical conversions.
+                Review-tier includes budget changes and pauses on converting
+                keywords. Blocked-tier (budget &gt;±50%, bid &gt;±25%) never
+                auto-applies regardless of this setting.
+              </p>
             </div>
           </div>
-        </div>
+        </SectionCard>
 
-        <div className="flex items-center justify-end gap-3">
-          {saveError && <span className="flex items-center gap-1 text-red-400 text-sm">{saveError}</span>}
-          {saved && <span className="flex items-center gap-1 text-green-400 text-sm"><CheckCircle className="w-4 h-4" /> Saved</span>}
-          <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            Save Settings
-          </button>
-        </div>
-
-        {/* Agent Logs link */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">Agent Logs</h2>
-              <p className="text-sm text-gray-400">View AI agent execution history, token usage, and errors.</p>
-            </div>
-            <Link href="/logs" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm rounded-lg">
-              View Logs
-            </Link>
-          </div>
-        </div>
+        {/* Agent logs link */}
+        <SectionCard
+          icon={<ScrollText className="h-4 w-4" />}
+          title="Agent logs"
+          description="AI agent execution history, token usage, and errors."
+          action={
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/logs">
+                View logs
+                <ExternalLink className="h-3 w-3" />
+              </Link>
+            </Button>
+          }
+        >
+          <p className="text-xs text-muted-foreground">
+            Every tool call, model used, token count, and duration is recorded for auditing.
+          </p>
+        </SectionCard>
       </div>
     </div>
   );

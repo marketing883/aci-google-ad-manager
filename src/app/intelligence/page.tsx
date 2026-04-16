@@ -1,13 +1,46 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Radar, Plus, Trash2, RefreshCw, Loader2, MessageSquare,
-  ArrowRight, Globe, Tag, TrendingUp, Shield, AlertTriangle,
-  Search, Eye, X,
+  AlertTriangle,
+  Eye,
+  Globe,
+  Loader2,
+  MessageSquare,
+  Plus,
+  Radar,
+  RefreshCw,
+  Search,
+  Shield,
+  Sparkles,
+  Tag,
+  Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { ConfirmDialog } from '@/components/patterns/ConfirmDialog';
+import { EmptyState } from '@/components/patterns/EmptyState';
+import { MetricCard } from '@/components/patterns/MetricCard';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { TimeAgo } from '@/components/patterns/TimeAgo';
+import { api } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 
 // ============================================================
 // Types
@@ -25,368 +58,538 @@ interface Competitor {
   updated_at: string;
 }
 
-// ============================================================
-// Helpers
-// ============================================================
+type ThreatLevel = 'Critical' | 'High' | 'Medium' | 'Low';
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return `${Math.floor(days / 30)}mo ago`;
-}
-
-function getThreatLevel(competitor: Competitor): { level: string; color: string; bgColor: string } {
+function getThreatLevel(competitor: Competitor): ThreatLevel {
   const kwCount = competitor.observed_keywords?.length || 0;
   const adCount = competitor.observed_ads?.length || 0;
   const hasNotes = !!competitor.notes;
   const score = kwCount * 2 + adCount * 3 + (hasNotes ? 5 : 0);
-
-  if (score >= 20) return { level: 'Critical', color: 'text-red-400', bgColor: 'bg-red-600' };
-  if (score >= 10) return { level: 'High', color: 'text-orange-400', bgColor: 'bg-orange-600' };
-  if (score >= 5) return { level: 'Medium', color: 'text-yellow-400', bgColor: 'bg-yellow-600' };
-  return { level: 'Low', color: 'text-gray-400', bgColor: 'bg-gray-600' };
+  if (score >= 20) return 'Critical';
+  if (score >= 10) return 'High';
+  if (score >= 5) return 'Medium';
+  return 'Low';
 }
 
-// ============================================================
-// Add Competitor Modal
-// ============================================================
+const THREAT_VARIANT: Record<ThreatLevel, 'critical' | 'warning' | 'info' | 'muted'> = {
+  Critical: 'critical',
+  High: 'warning',
+  Medium: 'info',
+  Low: 'muted',
+};
 
-function AddCompetitorModal({ onAdd, onClose }: { onAdd: (domain: string, name: string) => void; onClose: () => void }) {
-  const [domain, setDomain] = useState('');
-  const [name, setName] = useState('');
-
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">Track Competitor</h3>
-          <button onClick={onClose} className="p-1 hover:bg-gray-800 rounded"><X className="w-4 h-4 text-gray-400" /></button>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Domain</label>
-            <input type="text" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="e.g. accenture.com" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Company Name (optional)</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Accenture" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button onClick={() => { if (domain.trim()) { onAdd(domain.trim(), name.trim()); } }} disabled={!domain.trim()} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white text-sm rounded-lg">
-              Add Competitor
-            </button>
-            <button onClick={onClose} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm rounded-lg">Cancel</button>
-          </div>
-        </div>
-        <p className="text-xs text-gray-500 mt-3">
-          Tip: After adding, ask the AI Chat to run a deep analysis: "Analyze competitor accenture.com"
-        </p>
-      </div>
-    </div>
-  );
-}
+const THREAT_STRIPE: Record<ThreatLevel, string> = {
+  Critical: 'bg-critical',
+  High: 'bg-warning',
+  Medium: 'bg-info',
+  Low: 'bg-muted',
+};
 
 // ============================================================
-// Competitor Card
+// Competitor card
 // ============================================================
 
-function CompetitorCard({ competitor, onDelete, onAnalyze }: {
+function CompetitorCard({
+  competitor,
+  onDelete,
+  onAnalyze,
+}: {
   competitor: Competitor;
   onDelete: (id: string) => void;
   onAnalyze: (domain: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const threat = getThreatLevel(competitor);
-  // Use observed_keywords if populated, otherwise parse from notes field
+  // Fallback: parse keywords from notes field if observed_keywords is empty
   let keywords = competitor.observed_keywords || [];
   if (keywords.length === 0 && competitor.notes) {
     const match = competitor.notes.match(/Ranks for:\s*(.+)/);
     if (match) {
-      keywords = match[1].split(',').map((k: string) => ({ text: k.trim(), first_seen: competitor.created_at })).filter((k: { text: string }) => k.text);
+      keywords = match[1]
+        .split(',')
+        .map((k) => ({ text: k.trim(), first_seen: competitor.created_at }))
+        .filter((k) => k.text);
     }
   }
   const ads = competitor.observed_ads || [];
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-      {/* Header */}
-      <div className="p-5">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-800 rounded-lg flex items-center justify-center">
-              <Globe className="w-5 h-5 text-gray-400" />
+    <Card className="overflow-hidden">
+      <div className="flex">
+        <div
+          className={cn('w-1 shrink-0', THREAT_STRIPE[threat])}
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1 p-5">
+          {/* Header */}
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted/40">
+                <Globe className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="truncate text-sm font-semibold text-foreground">
+                  {competitor.company_name || competitor.domain}
+                </h3>
+                <p className="truncate text-xs text-muted-foreground">
+                  {competitor.domain}
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-semibold text-white">{competitor.company_name || competitor.domain}</h3>
-              <p className="text-xs text-gray-500">{competitor.domain}</p>
+            <div className="flex shrink-0 items-center gap-1">
+              <Badge variant={THREAT_VARIANT[threat]}>{threat}</Badge>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onDelete(competitor.id)}
+                aria-label={`Remove ${competitor.domain}`}
+                className="h-7 w-7 text-muted-foreground hover:text-critical"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${threat.bgColor} text-white`}>
-              {threat.level}
-            </span>
-            <button onClick={() => onDelete(competitor.id)} className="p-1.5 hover:bg-red-600/20 rounded text-gray-500 hover:text-red-400">
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-3 gap-3 mb-3">
-          <div className="bg-gray-800/50 rounded-lg p-2.5 text-center">
-            <p className="text-xs text-gray-500">Keywords</p>
-            <p className="text-lg font-bold">{keywords.length}</p>
+          {/* Quick stats */}
+          <div className="mb-4 grid grid-cols-3 gap-2">
+            <div className="rounded-md border border-border bg-muted/30 p-2.5 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Keywords
+              </p>
+              <p className="mt-0.5 text-lg font-semibold text-foreground">
+                {keywords.length}
+              </p>
+            </div>
+            <div className="rounded-md border border-border bg-muted/30 p-2.5 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Ad themes
+              </p>
+              <p className="mt-0.5 text-lg font-semibold text-foreground">
+                {ads.length}
+              </p>
+            </div>
+            <div className="rounded-md border border-border bg-muted/30 p-2.5 text-center">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Updated
+              </p>
+              <TimeAgo
+                value={competitor.updated_at}
+                className="mt-0.5 block text-xs font-medium text-foreground"
+              />
+            </div>
           </div>
-          <div className="bg-gray-800/50 rounded-lg p-2.5 text-center">
-            <p className="text-xs text-gray-500">Ad Themes</p>
-            <p className="text-lg font-bold">{ads.length}</p>
-          </div>
-          <div className="bg-gray-800/50 rounded-lg p-2.5 text-center">
-            <p className="text-xs text-gray-500">Last Updated</p>
-            <p className="text-sm font-medium">{timeAgo(competitor.updated_at)}</p>
-          </div>
-        </div>
 
-        {/* Strategic Notes */}
-        {competitor.notes && (
-          <div className="flex items-start gap-2 p-3 bg-purple-900/10 border border-purple-800/30 rounded-lg mb-3">
-            <Shield className="w-3.5 h-3.5 text-purple-400 mt-0.5 shrink-0" />
-            <p className="text-xs text-gray-300 leading-relaxed">{competitor.notes}</p>
-          </div>
-        )}
+          {/* Strategic notes */}
+          {competitor.notes && (
+            <div className="mb-3 flex items-start gap-2 rounded-md border border-accent/30 bg-accent/5 p-3">
+              <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {competitor.notes}
+              </p>
+            </div>
+          )}
 
-        {/* Action Buttons */}
-        <div className="flex gap-2">
-          <button onClick={() => onAnalyze(competitor.domain)} className="flex-1 flex items-center justify-center gap-2 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-xs rounded-lg transition-colors">
-            <MessageSquare className="w-3.5 h-3.5" />
-            Deep Analysis in Chat
-          </button>
-          <button onClick={() => setExpanded(!expanded)} className="flex items-center justify-center gap-1 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-xs rounded-lg">
-            <Eye className="w-3.5 h-3.5" />
-            {expanded ? 'Hide' : 'Details'}
-          </button>
+          {/* Actions */}
+          <div className="flex gap-2">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => onAnalyze(competitor.domain)}
+              className="flex-1"
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              Deep analysis
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setExpanded(!expanded)}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              {expanded ? 'Hide' : 'Details'}
+            </Button>
+          </div>
+
+          {/* Expanded details */}
+          {expanded && (
+            <>
+              <Separator className="my-4" />
+              <div className="space-y-4">
+                <div>
+                  <h4 className="mb-2 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <Tag className="h-3 w-3" /> Observed keywords
+                  </h4>
+                  {keywords.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {keywords.map((kw, i) => (
+                        <Badge
+                          key={i}
+                          variant="muted"
+                          className="normal-case"
+                        >
+                          {typeof kw === 'string' ? kw : kw.text}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No keywords observed yet. Run a deep analysis to discover them.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="mb-2 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <Search className="h-3 w-3" /> Ad copy themes
+                  </h4>
+                  {ads.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {ads.map((ad, i) => (
+                        <div
+                          key={i}
+                          className="rounded-md border border-border bg-muted/20 p-2 text-xs text-muted-foreground"
+                        >
+                          {typeof ad === 'string'
+                            ? ad
+                            : ad.headline || ad.description || JSON.stringify(ad)}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No ad themes observed yet.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
-
-      {/* Expanded Details */}
-      {expanded && (
-        <div className="border-t border-gray-800 p-5 space-y-4">
-          {/* Observed Keywords */}
-          <div>
-            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-              <Tag className="w-3 h-3" /> Observed Keywords
-            </h4>
-            {keywords.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {keywords.map((kw, i) => (
-                  <span key={i} className="px-2 py-0.5 bg-gray-800 text-gray-300 text-xs rounded">
-                    {typeof kw === 'string' ? kw : kw.text}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-600">No keywords observed yet. Run a deep analysis to discover them.</p>
-            )}
-          </div>
-
-          {/* Observed Ad Themes */}
-          <div>
-            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-              <Search className="w-3 h-3" /> Ad Copy Themes
-            </h4>
-            {ads.length > 0 ? (
-              <div className="space-y-1.5">
-                {ads.map((ad, i) => (
-                  <div key={i} className="p-2 bg-gray-800/50 rounded text-xs text-gray-300">
-                    {typeof ad === 'string' ? ad : (ad.headline || ad.description || JSON.stringify(ad))}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-600">No ad themes observed yet.</p>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+    </Card>
   );
 }
 
 // ============================================================
-// Main Intelligence Page
+// Main Intelligence page
 // ============================================================
 
 export default function IntelligencePage() {
   const router = useRouter();
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
 
-  useEffect(() => { fetchCompetitors(); }, []);
+  // Add-competitor dialog state
+  const [addOpen, setAddOpen] = useState(false);
+  const [newDomain, setNewDomain] = useState('');
+  const [newName, setNewName] = useState('');
+  const [addPending, setAddPending] = useState(false);
 
-  async function fetchCompetitors() {
+  // Delete confirmation state
+  const [deleteTarget, setDeleteTarget] = useState<Competitor | null>(null);
+
+  const fetchCompetitors = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/competitors');
-      const data = await res.json();
+      const data = await api.get<Competitor[]>('/api/competitors');
       setCompetitors(Array.isArray(data) ? data : []);
-    } catch { setCompetitors([]); }
-    setLoading(false);
-  }
+    } catch {
+      setCompetitors([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  async function addCompetitor(domain: string, name: string) {
+  useEffect(() => {
+    fetchCompetitors();
+  }, [fetchCompetitors]);
+
+  async function handleAdd() {
+    if (!newDomain.trim()) return;
+    setAddPending(true);
     try {
-      await fetch('/api/competitors', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domain, company_name: name }),
+      await api.post('/api/competitors', {
+        domain: newDomain.trim(),
+        company_name: newName.trim() || undefined,
       });
-      setShowAddModal(false);
+      toast.success(`Tracking ${newDomain.trim()}`);
+      setAddOpen(false);
+      setNewDomain('');
+      setNewName('');
       fetchCompetitors();
-    } catch { /* ignore */ }
+    } catch {
+      /* api-client toast */
+    } finally {
+      setAddPending(false);
+    }
   }
 
-  async function deleteCompetitor(id: string) {
-    if (!confirm('Remove this competitor from tracking?')) return;
+  async function handleDelete() {
+    if (!deleteTarget) return;
     try {
-      await fetch(`/api/competitors?id=${id}`, { method: 'DELETE' });
+      await api.delete(`/api/competitors?id=${deleteTarget.id}`);
+      toast.success(`Removed ${deleteTarget.domain}`);
       fetchCompetitors();
-    } catch { /* ignore */ }
+    } catch {
+      /* api-client toast */
+    } finally {
+      setDeleteTarget(null);
+    }
   }
 
   function analyzeInChat(domain: string) {
-    const message = encodeURIComponent(`Run a deep competitive analysis on ${domain} — what keywords are they targeting, what's their ad strategy, what are their strengths and weaknesses, and where can we outmaneuver them?`);
-    router.push(`/chat?prefill=${message}`);
+    const prompt = `Run a deep competitive analysis on ${domain} — what keywords are they targeting, what's their ad strategy, what are their strengths and weaknesses, and where can we outmaneuver them?`;
+    router.push(`/chat?prefill=${encodeURIComponent(prompt)}`);
   }
 
-  // Separate competitors by threat level
-  const criticalThreats = competitors.filter((c) => getThreatLevel(c).level === 'Critical');
-  const highThreats = competitors.filter((c) => getThreatLevel(c).level === 'High');
-  const otherCompetitors = competitors.filter((c) => !['Critical', 'High'].includes(getThreatLevel(c).level));
+  const criticalThreats = competitors.filter(
+    (c) => getThreatLevel(c) === 'Critical',
+  );
+  const highThreats = competitors.filter((c) => getThreatLevel(c) === 'High');
+  const otherCompetitors = competitors.filter((c) => {
+    const t = getThreatLevel(c);
+    return t !== 'Critical' && t !== 'High';
+  });
+  const totalKeywords = competitors.reduce(
+    (s, c) => s + (c.observed_keywords?.length || 0),
+    0,
+  );
 
   return (
-    <div>
-      {/* Add Modal */}
-      {showAddModal && <AddCompetitorModal onAdd={addCompetitor} onClose={() => setShowAddModal(false)} />}
+    <div className="space-y-6">
+      <PageHeader
+        icon={<Radar className="h-5 w-5" />}
+        title="Intelligence"
+        description="Competitor war room — tracking, analysis, and counter-strategies."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchCompetitors}
+              disabled={loading}
+              aria-label="Refresh competitors"
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Track competitor
+            </Button>
+          </>
+        }
+      />
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Radar className="w-7 h-7 text-blue-400" />
-          <div>
-            <h1 className="text-2xl font-bold">Intelligence</h1>
-            <p className="text-sm text-gray-500">Competitor war room — tracking, analysis, and counter-strategies</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={fetchCompetitors} disabled={loading} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          </button>
-          <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg">
-            <Plus className="w-4 h-4" /> Track Competitor
-          </button>
-        </div>
+      {/* Overview stats */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard
+          label="Tracked"
+          value={competitors.length}
+          icon={<Globe className="h-4 w-4" />}
+          accent="accent"
+        />
+        <MetricCard
+          label="Critical threats"
+          value={criticalThreats.length}
+          icon={<AlertTriangle className="h-4 w-4" />}
+          accent="critical"
+        />
+        <MetricCard
+          label="High threats"
+          value={highThreats.length}
+          icon={<AlertTriangle className="h-4 w-4" />}
+          accent="warning"
+        />
+        <MetricCard
+          label="Keywords observed"
+          value={totalKeywords.toLocaleString()}
+          icon={<Tag className="h-4 w-4" />}
+          accent="primary"
+        />
       </div>
 
-      {/* Overview Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
-          <p className="text-xs text-gray-400">Tracked</p>
-          <p className="text-2xl font-bold">{competitors.length}</p>
-        </div>
-        <div className="bg-gray-900 border border-red-900/30 rounded-xl p-4 text-center">
-          <p className="text-xs text-red-400">Critical Threats</p>
-          <p className="text-2xl font-bold text-red-400">{criticalThreats.length}</p>
-        </div>
-        <div className="bg-gray-900 border border-orange-900/30 rounded-xl p-4 text-center">
-          <p className="text-xs text-orange-400">High Threats</p>
-          <p className="text-2xl font-bold text-orange-400">{highThreats.length}</p>
-        </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
-          <p className="text-xs text-gray-400">Total Keywords Observed</p>
-          <p className="text-2xl font-bold">{competitors.reduce((s, c) => s + (c.observed_keywords?.length || 0), 0)}</p>
-        </div>
-      </div>
-
-      {/* Quick Analysis CTA */}
-      <div className="bg-gradient-to-r from-purple-900/20 to-blue-900/20 border border-purple-800/30 rounded-xl p-5 mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-white mb-1">Run AI-Powered Competitor Scan</h2>
-            <p className="text-xs text-gray-400">Ask the AI to discover competitors from your keywords and analyze their strategies.</p>
-          </div>
-          <Link href="/chat" className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg shrink-0">
-            <MessageSquare className="w-4 h-4" /> Scan in Chat
-          </Link>
-        </div>
-      </div>
-
-      {/* Competitor Grid */}
-      {loading ? (
-        <div className="text-gray-500 text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" /> Loading competitors...</div>
-      ) : competitors.length > 0 ? (
-        <div className="space-y-6">
-          {/* Critical Threats */}
-          {criticalThreats.length > 0 && (
+      {/* AI scan CTA */}
+      <Card className="relative overflow-hidden border-accent/30">
+        <div className="absolute inset-0 bg-gradient-to-r from-accent/10 via-primary/5 to-transparent" />
+        <div className="relative flex items-center justify-between gap-4 p-5">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-accent/30 bg-accent/10 text-accent">
+              <Sparkles className="h-4 w-4" />
+            </div>
             <div>
-              <h2 className="text-sm font-semibold text-red-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4" /> Critical Threats
+              <h2 className="text-sm font-semibold text-foreground">
+                Run an AI competitor scan
               </h2>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {criticalThreats.map((c) => (
-                  <CompetitorCard key={c.id} competitor={c} onDelete={deleteCompetitor} onAnalyze={analyzeInChat} />
-                ))}
-              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Ask the AI to discover competitors from your keywords and analyze their strategies.
+              </p>
             </div>
-          )}
-
-          {/* High Threats */}
-          {highThreats.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-orange-400 uppercase tracking-wider mb-3">High Threats</h2>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {highThreats.map((c) => (
-                  <CompetitorCard key={c.id} competitor={c} onDelete={deleteCompetitor} onAnalyze={analyzeInChat} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Other */}
-          {otherCompetitors.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Monitoring</h2>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {otherCompetitors.map((c) => (
-                  <CompetitorCard key={c.id} competitor={c} onDelete={deleteCompetitor} onAnalyze={analyzeInChat} />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
-          <Radar className="w-12 h-12 text-gray-700 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-gray-300 mb-2">No competitors tracked yet</h2>
-          <p className="text-gray-500 text-sm mb-4 max-w-md mx-auto">
-            Add competitors manually or ask the AI to discover them from your keywords and market.
-          </p>
-          <div className="flex gap-3 justify-center">
-            <button onClick={() => setShowAddModal(true)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg flex items-center gap-2">
-              <Plus className="w-4 h-4" /> Add Manually
-            </button>
-            <Link href="/chat" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm rounded-lg flex items-center gap-2">
-              <MessageSquare className="w-4 h-4" /> Discover via AI
-            </Link>
           </div>
+          <Button size="sm" asChild>
+            <Link href="/chat">
+              <MessageSquare className="h-4 w-4" />
+              Scan in chat
+            </Link>
+          </Button>
+        </div>
+      </Card>
+
+      {/* Competitor groups */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : competitors.length === 0 ? (
+        <EmptyState
+          icon={<Radar className="h-6 w-6" />}
+          title="No competitors tracked yet"
+          description="Add competitors manually or ask the AI to discover them from your keywords and market."
+          action={
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => setAddOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Add manually
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/chat">
+                  <MessageSquare className="h-4 w-4" />
+                  Discover via AI
+                </Link>
+              </Button>
+            </div>
+          }
+        />
+      ) : (
+        <div className="space-y-6">
+          {criticalThreats.length > 0 && (
+            <section>
+              <h2 className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-critical">
+                <AlertTriangle className="h-3.5 w-3.5" /> Critical threats
+              </h2>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {criticalThreats.map((c) => (
+                  <CompetitorCard
+                    key={c.id}
+                    competitor={c}
+                    onDelete={(id) =>
+                      setDeleteTarget(
+                        competitors.find((x) => x.id === id) ?? null,
+                      )
+                    }
+                    onAnalyze={analyzeInChat}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {highThreats.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-warning">
+                High threats
+              </h2>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {highThreats.map((c) => (
+                  <CompetitorCard
+                    key={c.id}
+                    competitor={c}
+                    onDelete={(id) =>
+                      setDeleteTarget(
+                        competitors.find((x) => x.id === id) ?? null,
+                      )
+                    }
+                    onAnalyze={analyzeInChat}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {otherCompetitors.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Monitoring
+              </h2>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {otherCompetitors.map((c) => (
+                  <CompetitorCard
+                    key={c.id}
+                    competitor={c}
+                    onDelete={(id) =>
+                      setDeleteTarget(
+                        competitors.find((x) => x.id === id) ?? null,
+                      )
+                    }
+                    onAnalyze={analyzeInChat}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       )}
+
+      {/* Add competitor dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Track a competitor</DialogTitle>
+            <DialogDescription>
+              Add a domain to begin monitoring. You can ask the AI to run a deep
+              analysis after adding.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="competitor-domain">Domain</Label>
+              <Input
+                id="competitor-domain"
+                value={newDomain}
+                onChange={(e) => setNewDomain(e.target.value)}
+                placeholder="e.g. accenture.com"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="competitor-name">Company name (optional)</Label>
+              <Input
+                id="competitor-name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. Accenture"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAddOpen(false)}
+              disabled={addPending}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleAdd} disabled={!newDomain.trim() || addPending}>
+              {addPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Add competitor
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={`Remove ${deleteTarget?.domain}?`}
+        description="This competitor and all observed data will be removed from tracking. You can re-add it later."
+        confirmLabel="Remove"
+        destructive
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

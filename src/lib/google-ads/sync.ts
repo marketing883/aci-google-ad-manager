@@ -87,6 +87,128 @@ export async function syncPerformanceData(lookbackDays = 7): Promise<{
     }
   }
 
+  // ==========================================================
+  // Ad-group-level performance sync
+  // Needed by OptimizerAgent's bid-efficiency sub-analysis, which compares
+  // per-ad-group CPA to campaign average. Campaign-level rollups lose that
+  // granularity. We fan out per-active-campaign rather than grabbing every
+  // ad group in one query — it's simpler against Google Ads' per-resource
+  // GAQL model and keeps the query surface predictable.
+  // ==========================================================
+  const { data: adGroupRows } = await supabase
+    .from('ad_groups')
+    .select('id, google_ad_group_id, campaign_id')
+    .not('google_ad_group_id', 'is', null);
+  const adGroupIdMap = new Map<string, string>(
+    (adGroupRows || []).map((ag: { id: string; google_ad_group_id: string }) => [
+      ag.google_ad_group_id,
+      ag.id,
+    ]),
+  );
+
+  for (const googleCampaignId of campaignsSynced) {
+    try {
+      const perAdGroupRows = await client.getAdGroupPerformance(
+        googleCampaignId,
+        dateFrom,
+        dateTo,
+      );
+      for (const row of perAdGroupRows) {
+        const localAdGroupId = adGroupIdMap.get(row.ad_group_id!);
+        if (!localAdGroupId) continue;
+        const snap = {
+          entity_type: 'ad_group' as const,
+          entity_id: localAdGroupId,
+          google_entity_id: row.ad_group_id,
+          date: row.date,
+          impressions: parseInt(row.metrics.impressions) || 0,
+          clicks: parseInt(row.metrics.clicks) || 0,
+          cost_micros: parseInt(row.metrics.cost_micros) || 0,
+          conversions: parseFloat(row.metrics.conversions) || 0,
+          conversion_value_micros: parseInt(row.metrics.conversions_value) || 0,
+          ctr: parseFloat(row.metrics.ctr) || 0,
+          avg_cpc_micros: parseInt(row.metrics.average_cpc) || 0,
+        };
+        const { error } = await supabase
+          .from('performance_snapshots')
+          .upsert(snap, { onConflict: 'entity_type,entity_id,date' });
+        if (!error) snapshotsUpserted++;
+      }
+    } catch (e) {
+      logger.warn(`Ad-group sync failed for campaign ${googleCampaignId}`, {
+        error: (e as Error).message,
+      });
+    }
+  }
+
+  // ==========================================================
+  // Keyword-level performance sync (with quality_score)
+  // Required by OptimizerAgent's quality-score-decay and search-terms-harvest
+  // sub-analyses. Quality score is only exposed on ad_group_criterion, so
+  // keyword-level rows are the only place we can capture it.
+  //
+  // Quality score in GAQL isn't segmented by date — each row carries the
+  // criterion's current QS. Our sync runs daily, so over time we build a
+  // QS timeseries naturally (today's snapshot = today's QS). Decay detection
+  // compares week-over-week rolling averages, which works with this shape.
+  // ==========================================================
+  const { data: keywordRows } = await supabase
+    .from('keywords')
+    .select('id, google_keyword_id, ad_group_id')
+    .not('google_keyword_id', 'is', null);
+  const keywordIdMap = new Map<string, string>(
+    (keywordRows || []).map((kw: { id: string; google_keyword_id: string }) => [
+      kw.google_keyword_id,
+      kw.id,
+    ]),
+  );
+
+  // Limit to ad groups that belong to campaigns we actually synced.
+  const activeAdGroups = (adGroupRows || []).filter(
+    (ag: { google_ad_group_id: string; campaign_id: string }) => {
+      const campaign = (localCampaigns || []).find(
+        (c: { id: string; google_campaign_id: string }) => c.id === ag.campaign_id,
+      );
+      return campaign && campaignsSynced.has(campaign.google_campaign_id);
+    },
+  );
+
+  for (const ag of activeAdGroups as Array<{ google_ad_group_id: string }>) {
+    try {
+      const perKeywordRows = await client.getKeywordPerformance(
+        ag.google_ad_group_id,
+        dateFrom,
+        dateTo,
+      );
+      for (const row of perKeywordRows) {
+        const localKeywordId = keywordIdMap.get(row.keyword_id!);
+        if (!localKeywordId) continue;
+        const snap = {
+          entity_type: 'keyword' as const,
+          entity_id: localKeywordId,
+          google_entity_id: row.keyword_id,
+          date: row.date,
+          impressions: parseInt(row.metrics.impressions) || 0,
+          clicks: parseInt(row.metrics.clicks) || 0,
+          cost_micros: parseInt(row.metrics.cost_micros) || 0,
+          conversions: parseFloat(row.metrics.conversions) || 0,
+          conversion_value_micros: parseInt(row.metrics.conversions_value) || 0,
+          ctr: parseFloat(row.metrics.ctr) || 0,
+          avg_cpc_micros: parseInt(row.metrics.average_cpc) || 0,
+          quality_score: row.metrics.quality_score ?? null,
+        };
+        const { error } = await supabase
+          .from('performance_snapshots')
+          .upsert(snap, { onConflict: 'entity_type,entity_id,date' });
+        if (!error) snapshotsUpserted++;
+      }
+    } catch (e) {
+      logger.warn(`Keyword sync failed for ad group ${ag.google_ad_group_id}`, {
+        error: (e as Error).message,
+      });
+    }
+  }
+
   // Update last_synced_at
   if (campaignsSynced.size > 0) {
     const now = new Date().toISOString();

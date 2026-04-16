@@ -1,11 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Search, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Search } from 'lucide-react';
+import { toast } from 'sonner';
 
-export default function NewReportPage() {
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { api } from '@/lib/api-client';
+
+function NewReportPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [brandName, setBrandName] = useState('');
@@ -15,7 +24,6 @@ export default function NewReportPage() {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
 
-  // Auto-fill from URL params (re-run) or company profile
   useEffect(() => {
     const paramBrand = searchParams.get('brand');
     const paramDomain = searchParams.get('domain');
@@ -25,43 +33,47 @@ export default function NewReportPage() {
     if (paramDomain) setDomain(paramDomain);
     if (paramKeywords) setKeywords(paramKeywords);
 
-    // Only fill from company profile if no URL params
     if (!paramBrand) {
-      fetch('/api/settings').then((r) => r.json()).then((s) => {
-        if (s.company_profile) {
-          const p = s.company_profile;
-          if (p.company_name && !paramBrand) setBrandName(p.company_name);
-          if (p.domain && !paramDomain) setDomain(p.domain);
-          if (p.services?.length && !paramKeywords) {
-            setKeywords(p.services.map((svc: { name: string }) => svc.name).join(', '));
+      api
+        .get<{ company_profile?: { company_name?: string; domain?: string; services?: Array<{ name: string }> } }>(
+          '/api/settings',
+        )
+        .then((s) => {
+          if (s.company_profile) {
+            const p = s.company_profile;
+            if (p.company_name && !paramBrand) setBrandName(p.company_name);
+            if (p.domain && !paramDomain) setDomain(p.domain);
+            if (p.services?.length && !paramKeywords) {
+              setKeywords(p.services.map((svc) => svc.name).join(', '));
+            }
           }
-        }
-      }).catch(() => {});
+        })
+        .catch(() => {
+          /* silent */
+        });
     }
   }, [searchParams]);
 
   async function runReport() {
     if (!brandName || !domain || !keywords.trim()) return;
     setRunning(true);
-    setProgress('Starting visibility report...');
-
+    setProgress('Starting visibility report…');
     try {
       const keywordList = keywords.split(',').map((k) => k.trim()).filter(Boolean);
-      setProgress(`Checking ${keywordList.length} keywords across Google, AI Overviews${includeLlm ? ', ChatGPT' : ''}, and paid search...`);
-
-      const res = await fetch('/api/visibility/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      setProgress(
+        `Checking ${keywordList.length} keywords across Google, AI Overviews${includeLlm ? ', ChatGPT' : ''}, and paid search…`,
+      );
+      const data = await api.post<{ report_id?: string; error?: string }>(
+        '/api/visibility/run',
+        {
           brand_name: brandName,
           domain,
           target_keywords: keywordList,
           include_llm_check: includeLlm,
-        }),
-      });
-
-      const data = await res.json();
+        },
+      );
       if (data.report_id) {
+        toast.success('Report ready');
         router.push(`/visibility/${data.report_id}`);
       } else {
         setProgress(data.error || 'Report completed. Check the Visibility dashboard.');
@@ -76,54 +88,101 @@ export default function NewReportPage() {
   const keywordList = keywords.split(',').map((k) => k.trim()).filter(Boolean);
   const keywordCount = keywordList.length;
   const effectiveCount = Math.min(keywordCount, 10);
-  const estCost = (effectiveCount * 0.004 + (includeLlm ? Math.min(keywordCount, 8) * 0.01 : 0)).toFixed(2);
+  const estCost = (
+    effectiveCount * 0.004 + (includeLlm ? Math.min(keywordCount, 8) * 0.01 : 0)
+  ).toFixed(2);
 
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-6">
-        <Link href="/visibility" className="text-gray-400 hover:text-white"><ArrowLeft className="w-5 h-5" /></Link>
-        <Search className="w-6 h-6 text-blue-400" />
-        <h1 className="text-2xl font-bold">New Visibility Report</h1>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        icon={
+          <Button variant="ghost" size="icon" asChild className="h-9 w-9">
+            <Link href="/visibility" aria-label="Back to visibility">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+        }
+        title="New visibility report"
+        description="Check your brand presence across Google, AI Overviews, ChatGPT, and paid search."
+      />
 
       <div className="max-w-2xl">
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-5">
+        <Card className="space-y-5 p-6">
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Brand Name</label>
-              <input type="text" value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="ACI InfoTech" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <div className="space-y-1.5">
+              <Label htmlFor="brand-name">Brand name</Label>
+              <Input
+                id="brand-name"
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
+                placeholder="ACI InfoTech"
+              />
             </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Domain</label>
-              <input type="text" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="aciinfotech.com" className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <div className="space-y-1.5">
+              <Label htmlFor="brand-domain">Domain</Label>
+              <Input
+                id="brand-domain"
+                value={domain}
+                onChange={(e) => setDomain(e.target.value)}
+                placeholder="aciinfotech.com"
+              />
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Target Keywords (comma-separated)</label>
-            <textarea value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="dynamics 365 consulting, d365 implementation, ERP migration, Microsoft partner" rows={3} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
-            <p className="text-xs text-gray-500 mt-1">{keywordCount} keywords{keywordCount > 10 ? ` (top 10 will be checked)` : ''} &middot; Est. cost: ${estCost}</p>
+          <div className="space-y-1.5">
+            <Label htmlFor="target-keywords">Target keywords</Label>
+            <Textarea
+              id="target-keywords"
+              value={keywords}
+              onChange={(e) => setKeywords(e.target.value)}
+              placeholder="dynamics 365 consulting, d365 implementation, ERP migration, Microsoft partner"
+              rows={3}
+            />
+            <p className="text-xs text-muted-foreground">
+              {keywordCount} keyword{keywordCount === 1 ? '' : 's'}
+              {keywordCount > 10 ? ' (top 10 will be checked)' : ''} · Est. cost: ${estCost}
+            </p>
           </div>
 
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
-              <input type="checkbox" checked={includeLlm} onChange={(e) => setIncludeLlm(e.target.checked)} className="rounded border-gray-600" />
-              Check LLM visibility (ChatGPT) — adds ~${(keywordCount * 0.01).toFixed(2)}
-            </label>
-          </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={includeLlm}
+              onChange={(e) => setIncludeLlm(e.target.checked)}
+              className="rounded border-border"
+            />
+            Check LLM visibility (ChatGPT) — adds ~${(keywordCount * 0.01).toFixed(2)}
+          </label>
 
-          <button onClick={runReport} disabled={running || !brandName || !domain || keywordCount === 0} className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium rounded-lg flex items-center justify-center gap-2">
-            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            {running ? 'Running...' : 'Generate Report'}
-          </button>
+          <Button
+            onClick={runReport}
+            disabled={running || !brandName || !domain || keywordCount === 0}
+            className="w-full"
+            size="lg"
+          >
+            {running ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
+            {running ? 'Running…' : 'Generate report'}
+          </Button>
 
           {progress && (
-            <div className="p-3 bg-gray-800/50 rounded-lg">
-              <p className="text-sm text-gray-400">{progress}</p>
+            <div className="rounded-md border border-border bg-muted/40 p-3">
+              <p className="text-sm text-muted-foreground">{progress}</p>
             </div>
           )}
-        </div>
+        </Card>
       </div>
     </div>
+  );
+}
+
+export default function NewReportPage() {
+  return (
+    <Suspense fallback={null}>
+      <NewReportPageInner />
+    </Suspense>
   );
 }

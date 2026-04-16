@@ -1,13 +1,35 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Eye, Search, BarChart3, TrendingUp, TrendingDown, Minus,
-  Loader2, RefreshCw, ArrowRight, MessageSquare, Globe, Bot,
-  DollarSign, Monitor,
+  ArrowRight,
+  BarChart3,
+  Bot,
+  DollarSign,
+  Eye,
+  Globe,
+  Loader2,
+  MessageSquare,
+  Minus,
+  RefreshCw,
+  Search,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  type LucideIcon,
 } from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { EmptyState } from '@/components/patterns/EmptyState';
+import { MetricCard } from '@/components/patterns/MetricCard';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { TimeAgo } from '@/components/patterns/TimeAgo';
+import { api } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 
 // ============================================================
 // Types
@@ -23,7 +45,12 @@ interface VisibilityReport {
   llm_score: number;
   paid_score: number;
   target_keywords: string[];
-  recommendations: Array<{ id: string; title: string; action: string; priority: number }>;
+  recommendations: Array<{
+    id: string;
+    title: string;
+    action: string;
+    priority: number;
+  }>;
   api_cost_cents: number;
   created_at: string;
 }
@@ -35,57 +62,111 @@ interface AnalyticsSnapshot {
   traffic: { sessions?: number; users?: number; bounce_rate?: number };
   scores: { website_health?: number };
   flags: Array<{ type: string }>;
-  recommendations: Array<{ id: string; title: string; action: string; priority: number }>;
+  recommendations: Array<{
+    id: string;
+    title: string;
+    action: string;
+    priority: number;
+  }>;
   created_at: string;
 }
 
 // ============================================================
-// Score Card Component
+// Score card
 // ============================================================
 
-function ScoreCard({ title, score, icon: Icon, trend, subtitle, href }: {
+type ScoreTone = 'success' | 'warning' | 'critical' | 'muted';
+
+function scoreTone(score: number | null): ScoreTone {
+  if (score === null) return 'muted';
+  if (score >= 70) return 'success';
+  if (score >= 40) return 'warning';
+  return 'critical';
+}
+
+const toneBadge: Record<ScoreTone, string> = {
+  success: 'border-success/30 text-success',
+  warning: 'border-warning/30 text-warning',
+  critical: 'border-critical/30 text-critical',
+  muted: 'border-border text-muted-foreground',
+};
+
+function ScoreCard({
+  title,
+  score,
+  icon: Icon,
+  trend,
+  subtitle,
+  href,
+}: {
   title: string;
   score: number | null;
-  icon: React.ElementType;
+  icon: LucideIcon;
   trend?: number | null;
   subtitle: string;
   href: string;
 }) {
-  const scoreColor = score === null ? 'text-gray-500'
-    : score >= 70 ? 'text-green-400'
-    : score >= 40 ? 'text-yellow-400'
-    : 'text-red-400';
-
-  const scoreBg = score === null ? 'bg-gray-800'
-    : score >= 70 ? 'bg-green-600/10 border-green-600/20'
-    : score >= 40 ? 'bg-yellow-600/10 border-yellow-600/20'
-    : 'bg-red-600/10 border-red-600/20';
+  const tone = scoreTone(score);
+  const scoreColor =
+    tone === 'success'
+      ? 'text-success'
+      : tone === 'warning'
+        ? 'text-warning'
+        : tone === 'critical'
+          ? 'text-critical'
+          : 'text-muted-foreground';
 
   return (
-    <Link href={href} className={`${scoreBg} border border-gray-800 rounded-xl p-5 hover:border-gray-600 transition-colors block`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Icon className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-400">{title}</span>
-        </div>
-        {trend !== undefined && trend !== null && (
-          <div className={`flex items-center gap-1 text-xs ${trend > 0 ? 'text-green-400' : trend < 0 ? 'text-red-400' : 'text-gray-500'}`}>
-            {trend > 0 ? <TrendingUp className="w-3 h-3" /> : trend < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
-            {trend !== 0 ? `${Math.abs(trend)}` : ''}
-          </div>
+    <Link href={href} className="block">
+      <Card
+        className={cn(
+          'p-5 ring-1 ring-inset transition-colors hover:border-border/80',
+          tone === 'success' && 'ring-success/20',
+          tone === 'warning' && 'ring-warning/20',
+          tone === 'critical' && 'ring-critical/20',
+          tone === 'muted' && 'ring-border',
         )}
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className={`text-3xl font-bold ${scoreColor}`}>{score ?? '—'}</span>
-        <span className="text-sm text-gray-500">/100</span>
-      </div>
-      <p className="text-xs text-gray-500 mt-1">{subtitle}</p>
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Icon className="h-4 w-4 text-muted-foreground" />
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {title}
+            </span>
+          </div>
+          {trend !== undefined && trend !== null && trend !== 0 && (
+            <Badge
+              variant={
+                trend > 0 ? 'success' : trend < 0 ? 'critical' : 'muted'
+              }
+              className="normal-case"
+            >
+              {trend > 0 ? (
+                <TrendingUp className="h-3 w-3" />
+              ) : trend < 0 ? (
+                <TrendingDown className="h-3 w-3" />
+              ) : (
+                <Minus className="h-3 w-3" />
+              )}
+              {trend > 0 ? '+' : ''}
+              {trend}
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-baseline gap-1">
+          <span className={cn('text-3xl font-semibold tracking-tight', scoreColor)}>
+            {score ?? '—'}
+          </span>
+          <span className="text-sm text-muted-foreground">/100</span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
+      </Card>
     </Link>
   );
 }
 
 // ============================================================
-// Main Dashboard
+// Main Visibility page
 // ============================================================
 
 export default function VisibilityDashboard() {
@@ -98,230 +179,422 @@ export default function VisibilityDashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [reportsRes, snapshotRes] = await Promise.all([
-        fetch('/api/visibility').then((r) => r.json()).catch(() => []),
-        fetch('/api/analytics/snapshot').then((r) => r.json()).catch(() => null),
+      const [reportsRes, snapshotRes] = await Promise.allSettled([
+        api.get<VisibilityReport[]>('/api/visibility'),
+        api.get<AnalyticsSnapshot | { empty: true }>('/api/analytics/snapshot'),
       ]);
-      if (Array.isArray(reportsRes) && reportsRes.length > 0) {
-        setReports(reportsRes);
-        setLatestReport(reportsRes[0]);
+
+      if (reportsRes.status === 'fulfilled' && Array.isArray(reportsRes.value)) {
+        setReports(reportsRes.value);
+        setLatestReport(reportsRes.value[0] ?? null);
       }
-      if (snapshotRes && !snapshotRes.empty) {
-        setSnapshot(snapshotRes);
-      } else {
-        // No snapshot exists — trigger first one automatically
-        try {
-          await fetch('/api/cron/analytics-snapshot', { method: 'POST' });
-          // Re-fetch the snapshot
-          const freshSnapshot = await fetch('/api/analytics/snapshot').then((r) => r.json()).catch(() => null);
-          if (freshSnapshot && !freshSnapshot.empty) {
-            setSnapshot(freshSnapshot);
+
+      if (snapshotRes.status === 'fulfilled') {
+        const snap = snapshotRes.value;
+        if (snap && !('empty' in snap && snap.empty)) {
+          setSnapshot(snap as AnalyticsSnapshot);
+        } else {
+          // Trigger first snapshot in background; don't await failure
+          try {
+            await api.post('/api/cron/analytics-snapshot', {}, {
+              toastOnError: false,
+            });
+            const fresh = await api.get<AnalyticsSnapshot | { empty: true }>(
+              '/api/analytics/snapshot',
+            );
+            if (fresh && !('empty' in fresh && fresh.empty)) {
+              setSnapshot(fresh as AnalyticsSnapshot);
+            }
+          } catch {
+            /* cron may not be available in dev */
           }
-        } catch { /* cron may not be available */ }
+        }
       }
-    } catch { /* ignore */ }
-    setLoading(false);
+    } catch {
+      /* silent — per-section empty states handle the rest */
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-  // Calculate trend from previous report
   const prevReport = reports.length > 1 ? reports[1] : null;
-  const overallTrend = latestReport && prevReport ? latestReport.overall_score - prevReport.overall_score : null;
-  const websiteScore = (snapshot?.scores as Record<string, unknown>)?.website_health as number | null ?? null;
-  const trafficData = snapshot?.traffic as { sessions?: number; users?: number; bounce_rate?: number } | null;
-  const snapshotFlags = (snapshot?.flags as Array<{ type: string }>) || [];
-  const snapshotRecs = (snapshot?.recommendations as Array<{ id: string; title: string; action: string; priority: number }>) || [];
+  const overallTrend =
+    latestReport && prevReport
+      ? latestReport.overall_score - prevReport.overall_score
+      : null;
+
+  const websiteScore = (snapshot?.scores?.website_health as number | undefined) ?? null;
+  const trafficData = snapshot?.traffic;
+  const snapshotFlags = snapshot?.flags ?? [];
+  const snapshotRecs = snapshot?.recommendations ?? [];
+
+  // Deduplicated recommendations from both sources
+  const recommendations = (() => {
+    const all = [...(latestReport?.recommendations ?? []), ...snapshotRecs];
+    const seen = new Set<string>();
+    return all.filter((r) => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
+    });
+  })();
 
   return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Eye className="w-7 h-7 text-blue-400" />
-          <div>
-            <h1 className="text-2xl font-bold">Visibility & Intelligence</h1>
-            <p className="text-sm text-gray-500">Brand visibility, website analytics, and actionable insights</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={fetchData} disabled={loading} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            Refresh
-          </button>
-          <Link href="/visibility/new" className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg">
-            <Search className="w-4 h-4" /> New Report
-          </Link>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        icon={<Eye className="h-5 w-5" />}
+        title="Visibility & intelligence"
+        description="Brand visibility, website analytics, and actionable insights across Ads, SEO, and AEO."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchData}
+              disabled={loading}
+              aria-label="Refresh visibility data"
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Refresh
+            </Button>
+            <Button size="sm" asChild>
+              <Link href="/visibility/new">
+                <Search className="h-4 w-4" />
+                New report
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
-      {/* Score Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      {/* Score cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <ScoreCard
-          title="Brand Visibility"
+          title="Brand visibility"
           score={latestReport?.overall_score ?? null}
           icon={Eye}
           trend={overallTrend}
-          subtitle={latestReport ? `${latestReport.target_keywords.length} keywords tracked` : 'Run your first report'}
+          subtitle={
+            latestReport
+              ? `${latestReport.target_keywords.length} keywords tracked`
+              : 'Run your first report'
+          }
           href="/visibility/search"
         />
         <ScoreCard
-          title="Organic Search"
+          title="Organic search"
           score={latestReport?.organic_score ?? null}
           icon={Globe}
-          trend={prevReport ? (latestReport?.organic_score ?? 0) - prevReport.organic_score : null}
+          trend={
+            prevReport
+              ? (latestReport?.organic_score ?? 0) - prevReport.organic_score
+              : null
+          }
           subtitle="Google rankings"
           href="/visibility/search"
         />
         <ScoreCard
-          title="AI Visibility"
+          title="AI visibility"
           score={latestReport?.ai_overview_score ?? null}
           icon={Bot}
-          trend={prevReport ? (latestReport?.ai_overview_score ?? 0) - prevReport.ai_overview_score : null}
-          subtitle="AI Overviews + ChatGPT"
+          trend={
+            prevReport
+              ? (latestReport?.ai_overview_score ?? 0) -
+                prevReport.ai_overview_score
+              : null
+          }
+          subtitle="AI overviews + ChatGPT"
           href="/visibility/search"
         />
         <ScoreCard
-          title="Paid Search"
+          title="Paid search"
           score={latestReport?.paid_score ?? null}
           icon={DollarSign}
-          trend={prevReport ? (latestReport?.paid_score ?? 0) - prevReport.paid_score : null}
+          trend={
+            prevReport
+              ? (latestReport?.paid_score ?? 0) - prevReport.paid_score
+              : null
+          }
           subtitle="Ad presence vs competitors"
           href="/visibility/search"
         />
       </div>
 
-      {/* Live Analytics Summary (from daily snapshot) */}
+      {/* Live analytics summary */}
       {snapshot && trafficData && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-            <p className="text-xs text-gray-500">Website Health</p>
-            <p className={`text-2xl font-bold ${websiteScore && websiteScore >= 60 ? 'text-green-400' : websiteScore && websiteScore >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>{websiteScore ?? '—'}/100</p>
-            <p className="text-[10px] text-gray-600">{snapshotFlags.length} issues found</p>
-          </div>
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-            <p className="text-xs text-gray-500">Sessions (30d)</p>
-            <p className="text-2xl font-bold">{trafficData.sessions?.toLocaleString() ?? '—'}</p>
-            <p className="text-[10px] text-gray-600">{trafficData.users?.toLocaleString() ?? '—'} users</p>
-          </div>
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-            <p className="text-xs text-gray-500">Bounce Rate</p>
-            <p className={`text-2xl font-bold ${trafficData.bounce_rate && trafficData.bounce_rate > 0.5 ? 'text-red-400' : 'text-green-400'}`}>{trafficData.bounce_rate ? `${(trafficData.bounce_rate * 100).toFixed(1)}%` : '—'}</p>
-          </div>
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-            <p className="text-xs text-gray-500">Last Updated</p>
-            <p className="text-sm font-medium text-gray-300">{new Date(snapshot.created_at).toLocaleDateString()}</p>
-            <p className="text-[10px] text-gray-600">{new Date(snapshot.created_at).toLocaleTimeString()}</p>
-          </div>
+        <div className="grid gap-4 md:grid-cols-4">
+          <MetricCard
+            label="Website health"
+            value={`${websiteScore ?? '—'}/100`}
+            icon={<BarChart3 className="h-4 w-4" />}
+            accent={
+              websiteScore === null
+                ? 'muted'
+                : websiteScore >= 60
+                  ? 'success'
+                  : websiteScore >= 40
+                    ? 'warning'
+                    : 'critical'
+            }
+            deltaPct={null}
+          />
+          <MetricCard
+            label="Sessions (30d)"
+            value={trafficData.sessions?.toLocaleString() ?? '—'}
+            icon={<TrendingUp className="h-4 w-4" />}
+            accent="accent"
+            deltaPct={null}
+          />
+          <MetricCard
+            label="Bounce rate"
+            value={
+              trafficData.bounce_rate
+                ? `${(trafficData.bounce_rate * 100).toFixed(1)}%`
+                : '—'
+            }
+            icon={<TrendingDown className="h-4 w-4" />}
+            accent={
+              trafficData.bounce_rate && trafficData.bounce_rate > 0.5
+                ? 'critical'
+                : 'success'
+            }
+            deltaPct={null}
+          />
+          <Card className="flex items-start gap-3 p-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Last updated
+              </p>
+              <p className="mt-1 text-sm font-medium text-foreground">
+                <TimeAgo value={snapshot.created_at} />
+              </p>
+              {snapshotFlags.length > 0 && (
+                <p className="text-[10px] text-muted-foreground">
+                  {snapshotFlags.length} issue
+                  {snapshotFlags.length === 1 ? '' : 's'} flagged
+                </p>
+              )}
+            </div>
+          </Card>
         </div>
       )}
 
-      {/* Two-column layout: Recommendations + Quick Links */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        {/* Recommendations */}
-        <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Top Recommendations</h2>
-          {(() => {
-            const allRecs = [...(latestReport?.recommendations || []), ...snapshotRecs];
-            // Deduplicate by id
-            const seen = new Set<string>();
-            const uniqueRecs = allRecs.filter((r) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
-            return uniqueRecs;
-          })().length > 0 ? (
-            <div className="space-y-3">
-              {(() => {
-                const allRecs = [...(latestReport?.recommendations || []), ...snapshotRecs];
-                const seen = new Set<string>();
-                return allRecs.filter((r) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
-              })().slice(0, 5).map((rec, i) => (
-                <div key={i} className="flex items-start gap-3 p-3 bg-gray-800/40 rounded-lg">
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                    rec.priority === 1 ? 'bg-red-600/20 text-red-400' : rec.priority === 2 ? 'bg-yellow-600/20 text-yellow-400' : 'bg-gray-700 text-gray-400'
-                  }`}>{i + 1}</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-white">{rec.title}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{rec.action}</p>
+      {/* Recommendations + quick links */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="p-5 lg:col-span-2">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-accent" />
+              <h2 className="text-sm font-semibold text-foreground">
+                Top recommendations
+              </h2>
+              {recommendations.length > 0 && (
+                <Badge variant="accent">{recommendations.length}</Badge>
+              )}
+            </div>
+          </div>
+
+          {recommendations.length > 0 ? (
+            <div className="space-y-2">
+              {recommendations.slice(0, 5).map((rec, i) => (
+                <div
+                  key={rec.id}
+                  className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3"
+                >
+                  <span
+                    className={cn(
+                      'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+                      rec.priority === 1
+                        ? 'bg-critical/15 text-critical'
+                        : rec.priority === 2
+                          ? 'bg-warning/15 text-warning'
+                          : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {rec.title}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {rec.action}
+                    </p>
                   </div>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => {
-                      const msg = encodeURIComponent(`${rec.action} Help me implement this.`);
+                      const msg = encodeURIComponent(
+                        `${rec.action} Help me implement this.`,
+                      );
                       router.push(`/chat?prefill=${msg}`);
                     }}
-                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 shrink-0"
+                    className="shrink-0 text-info"
                   >
-                    <MessageSquare className="w-3 h-3" /> Fix
-                  </button>
+                    <MessageSquare className="h-3 w-3" />
+                    Fix
+                  </Button>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="text-center py-8">
-              <Search className="w-10 h-10 text-gray-700 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">Run a visibility report to get recommendations.</p>
-              <Link href="/visibility/new" className="text-blue-400 text-sm hover:text-blue-300 mt-2 inline-block">Run First Report</Link>
-            </div>
+            <EmptyState
+              bare
+              icon={<Search className="h-6 w-6" />}
+              title="No recommendations yet"
+              description="Run a visibility report to get actionable next steps across SEO, AEO, and paid channels."
+              action={
+                <Button size="sm" asChild>
+                  <Link href="/visibility/new">Run first report</Link>
+                </Button>
+              }
+            />
           )}
-        </div>
+        </Card>
 
-        {/* Quick Links */}
-        <div className="space-y-4">
-          <Link href="/visibility/search" className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-colors block">
-            <div className="flex items-center gap-3 mb-2">
-              <Search className="w-5 h-5 text-blue-400" />
-              <h3 className="font-medium text-white">Search Visibility</h3>
-            </div>
-            <p className="text-xs text-gray-500">Organic rankings, AI Overviews, LLM mentions, paid ads</p>
-            <div className="flex items-center gap-1 text-xs text-blue-400 mt-2"><ArrowRight className="w-3 h-3" /> View reports</div>
-          </Link>
-
-          <Link href="/visibility/analytics" className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-colors block">
-            <div className="flex items-center gap-3 mb-2">
-              <BarChart3 className="w-5 h-5 text-purple-400" />
-              <h3 className="font-medium text-white">Website Analytics</h3>
-            </div>
-            <p className="text-xs text-gray-500">Traffic, landing pages, conversions, ad click behavior</p>
-            <div className="flex items-center gap-1 text-xs text-purple-400 mt-2"><ArrowRight className="w-3 h-3" /> View analytics</div>
-          </Link>
-
-          <Link href="/visibility/trends" className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-colors block">
-            <div className="flex items-center gap-3 mb-2">
-              <TrendingUp className="w-5 h-5 text-green-400" />
-              <h3 className="font-medium text-white">Trends</h3>
-            </div>
-            <p className="text-xs text-gray-500">Score changes over time, improvement tracking</p>
-            <div className="flex items-center gap-1 text-xs text-green-400 mt-2"><ArrowRight className="w-3 h-3" /> View trends</div>
-          </Link>
+        <div className="space-y-3">
+          <QuickLink
+            href="/visibility/search"
+            icon={<Search className="h-4 w-4" />}
+            title="Search visibility"
+            description="Organic rankings, AI overviews, LLM mentions, paid ads"
+            accent="info"
+          />
+          <QuickLink
+            href="/visibility/analytics"
+            icon={<BarChart3 className="h-4 w-4" />}
+            title="Website analytics"
+            description="Traffic, landing pages, conversions, ad-click behavior"
+            accent="accent"
+          />
+          <QuickLink
+            href="/visibility/trends"
+            icon={<TrendingUp className="h-4 w-4" />}
+            title="Trends"
+            description="Score changes over time, improvement tracking"
+            accent="success"
+          />
         </div>
       </div>
 
-      {/* Recent Reports */}
+      {/* Recent reports */}
       {reports.length > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Recent Reports</h2>
-          <div className="space-y-2">
-            {reports.slice(0, 5).map((report) => (
-              <Link
-                key={report.id}
-                href={`/visibility/${report.id}`}
-                className="flex items-center justify-between p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/60 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${
-                    report.overall_score >= 70 ? 'bg-green-600/20 text-green-400' :
-                    report.overall_score >= 40 ? 'bg-yellow-600/20 text-yellow-400' :
-                    'bg-red-600/20 text-red-400'
-                  }`}>{report.overall_score}</div>
-                  <div>
-                    <p className="text-sm text-white">{report.brand_name} — {report.domain}</p>
-                    <p className="text-xs text-gray-500">{report.target_keywords.length} keywords &middot; {new Date(report.created_at).toLocaleDateString()}</p>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-gray-600" />
-              </Link>
-            ))}
+        <Card className="p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <Eye className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold text-foreground">
+              Recent reports
+            </h2>
           </div>
-        </div>
+          <div className="space-y-2">
+            {reports.slice(0, 5).map((report) => {
+              const tone = scoreTone(report.overall_score);
+              return (
+                <Link
+                  key={report.id}
+                  href={`/visibility/${report.id}`}
+                  className="group flex items-center justify-between rounded-md border border-border bg-muted/20 p-3 transition-colors hover:bg-muted/40"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div
+                      className={cn(
+                        'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-sm font-bold',
+                        toneBadge[tone],
+                      )}
+                    >
+                      {report.overall_score}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {report.brand_name} — {report.domain}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {report.target_keywords.length} keywords ·{' '}
+                        <TimeAgo value={report.created_at} />
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+                </Link>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {reports.length === 0 && !loading && (
+        <EmptyState
+          icon={<Eye className="h-6 w-6" />}
+          title="No visibility reports yet"
+          description="Run your first report to see brand rankings across organic search, AI answers, and paid ads."
+          action={
+            <Button asChild>
+              <Link href="/visibility/new">
+                <Search className="h-4 w-4" />
+                Run first report
+              </Link>
+            </Button>
+          }
+        />
       )}
     </div>
+  );
+}
+
+// ============================================================
+// Quick link card
+// ============================================================
+
+function QuickLink({
+  href,
+  icon,
+  title,
+  description,
+  accent,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  accent: 'info' | 'accent' | 'success';
+}) {
+  const accentClass: Record<typeof accent, string> = {
+    info: 'bg-info/10 text-info',
+    accent: 'bg-accent/10 text-accent',
+    success: 'bg-success/10 text-success',
+  };
+  return (
+    <Link href={href} className="block">
+      <Card className="group p-5 transition-colors hover:border-border/80">
+        <div className="mb-2 flex items-center gap-3">
+          <div
+            className={cn(
+              'flex h-8 w-8 items-center justify-center rounded-md',
+              accentClass[accent],
+            )}
+          >
+            {icon}
+          </div>
+          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        </div>
+        <p className="text-xs text-muted-foreground">{description}</p>
+        <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+          View
+          <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+        </div>
+      </Card>
+    </Link>
   );
 }

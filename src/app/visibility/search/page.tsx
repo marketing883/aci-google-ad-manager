@@ -1,8 +1,32 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Search, Loader2, Globe, Bot, DollarSign, Sparkles } from 'lucide-react';
+import {
+  ArrowLeft,
+  Bot,
+  DollarSign,
+  Globe,
+  Loader2,
+  Search,
+  Sparkles,
+} from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { EmptyState } from '@/components/patterns/EmptyState';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { api } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 
 interface Report {
   id: string;
@@ -14,11 +38,40 @@ interface Report {
   llm_score: number;
   paid_score: number;
   target_keywords: string[];
-  organic_results: Array<{ keyword: string; brand_position: number | null; top_competitor: string | null }>;
-  ai_overview_results: Array<{ keyword: string; has_overview: boolean; brand_cited: boolean; citations: string[] }>;
-  llm_results: Array<{ keyword: string; question: string; mentioned: boolean; position: number | null; competitors_mentioned: string[] }>;
-  paid_results: Array<{ keyword: string; brand_ad: number | null; competitor_ads: string[] }>;
+  organic_results: Array<{
+    keyword: string;
+    brand_position: number | null;
+    top_competitor: string | null;
+  }>;
+  ai_overview_results: Array<{
+    keyword: string;
+    has_overview: boolean;
+    brand_cited: boolean;
+    citations: string[];
+  }>;
+  llm_results: Array<{
+    keyword: string;
+    question: string;
+    mentioned: boolean;
+    position: number | null;
+    competitors_mentioned: string[];
+  }>;
+  paid_results: Array<{
+    keyword: string;
+    brand_ad: number | null;
+    competitor_ads: string[];
+  }>;
   created_at: string;
+}
+
+function scoreVariant(score: number): 'success' | 'warning' | 'critical' {
+  if (score >= 70) return 'success';
+  if (score >= 40) return 'warning';
+  return 'critical';
+}
+
+function ScoreBadge({ score }: { score: number }) {
+  return <Badge variant={scoreVariant(score)}>{score}/100</Badge>;
 }
 
 export default function SearchVisibilityPage() {
@@ -27,153 +80,312 @@ export default function SearchVisibilityPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/visibility').then((r) => r.json()).then((d) => {
-      setReports(Array.isArray(d) ? d : []);
-      if (Array.isArray(d) && d.length > 0) setSelected(d[0]);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    api
+      .get<Report[]>('/api/visibility')
+      .then((d) => {
+        setReports(Array.isArray(d) ? d : []);
+        if (Array.isArray(d) && d.length > 0) setSelected(d[0]);
+      })
+      .catch(() => {
+        /* silent */
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  const scoreBadge = (score: number) => {
-    const color = score >= 70 ? 'bg-green-600/20 text-green-400' : score >= 40 ? 'bg-yellow-600/20 text-yellow-400' : 'bg-red-600/20 text-red-400';
-    return <span className={`px-2 py-0.5 rounded text-xs font-bold ${color}`}>{score}/100</span>;
-  };
-
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-6">
-        <Link href="/visibility" className="text-gray-400 hover:text-white"><ArrowLeft className="w-5 h-5" /></Link>
-        <Search className="w-6 h-6 text-blue-400" />
-        <div>
-          <h1 className="text-2xl font-bold">Search Visibility</h1>
-          <p className="text-sm text-gray-500">Organic rankings, AI Overviews, LLM mentions, paid ads</p>
-        </div>
-        <div className="ml-auto">
-          <Link href="/visibility/new" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg">New Report</Link>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        icon={
+          <Button variant="ghost" size="icon" asChild className="h-9 w-9">
+            <Link href="/visibility" aria-label="Back to visibility">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+        }
+        title="Search visibility"
+        description="Organic rankings, AI Overviews, LLM mentions, paid ads."
+        actions={
+          <Button size="sm" asChild>
+            <Link href="/visibility/new">
+              <Search className="h-4 w-4" />
+              New report
+            </Link>
+          </Button>
+        }
+      />
 
       {loading ? (
-        <div className="text-center py-20 text-gray-500"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />Loading...</div>
-      ) : !selected ? (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
-          <Search className="w-12 h-12 text-gray-700 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-gray-300 mb-2">No visibility reports yet</h2>
-          <p className="text-gray-500 text-sm mb-4">Run your first report to see how your brand appears across search.</p>
-          <Link href="/visibility/new" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg inline-block">Run First Report</Link>
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
+      ) : !selected ? (
+        <EmptyState
+          icon={<Search className="h-6 w-6" />}
+          title="No visibility reports yet"
+          description="Run your first report to see how your brand appears across search."
+          action={
+            <Button asChild>
+              <Link href="/visibility/new">Run first report</Link>
+            </Button>
+          }
+        />
       ) : (
-        <div>
+        <div className="space-y-4">
           {/* Report selector */}
           {reports.length > 1 && (
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+            <div className="flex gap-2 overflow-x-auto pb-2">
               {reports.slice(0, 10).map((r) => (
-                <button key={r.id} onClick={() => setSelected(r)} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${selected.id === r.id ? 'bg-blue-600/20 text-blue-400' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>
+                <Button
+                  key={r.id}
+                  variant={selected.id === r.id ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSelected(r)}
+                  className="shrink-0"
+                >
                   {new Date(r.created_at).toLocaleDateString()} ({r.overall_score}/100)
-                </button>
+                </Button>
               ))}
             </div>
           )}
 
           {/* Scores overview */}
-          <div className="grid grid-cols-4 gap-4 mb-6">
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
-              <Globe className="w-5 h-5 text-blue-400 mx-auto mb-2" />
-              <p className="text-xs text-gray-500">Organic</p>
-              <p className="text-2xl font-bold mt-1">{selected.organic_score}</p>
-            </div>
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
-              <Sparkles className="w-5 h-5 text-purple-400 mx-auto mb-2" />
-              <p className="text-xs text-gray-500">AI Overviews</p>
-              <p className="text-2xl font-bold mt-1">{selected.ai_overview_score}</p>
-            </div>
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
-              <Bot className="w-5 h-5 text-green-400 mx-auto mb-2" />
-              <p className="text-xs text-gray-500">LLM</p>
-              <p className="text-2xl font-bold mt-1">{selected.llm_score}</p>
-            </div>
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
-              <DollarSign className="w-5 h-5 text-yellow-400 mx-auto mb-2" />
-              <p className="text-xs text-gray-500">Paid</p>
-              <p className="text-2xl font-bold mt-1">{selected.paid_score}</p>
-            </div>
+          <div className="grid gap-4 md:grid-cols-4">
+            <ScoreTile
+              icon={<Globe className="h-5 w-5" />}
+              label="Organic"
+              score={selected.organic_score}
+              tone="info"
+            />
+            <ScoreTile
+              icon={<Sparkles className="h-5 w-5" />}
+              label="AI Overviews"
+              score={selected.ai_overview_score}
+              tone="accent"
+            />
+            <ScoreTile
+              icon={<Bot className="h-5 w-5" />}
+              label="LLM"
+              score={selected.llm_score}
+              tone="success"
+            />
+            <ScoreTile
+              icon={<DollarSign className="h-5 w-5" />}
+              label="Paid"
+              score={selected.paid_score}
+              tone="warning"
+            />
           </div>
 
           {/* Organic Results */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-4">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Organic Rankings {scoreBadge(selected.organic_score)}</h2>
-            <table className="w-full text-sm">
-              <thead><tr className="text-xs text-gray-500 border-b border-gray-800"><th className="text-left py-2">Keyword</th><th className="text-left py-2">Your Position</th><th className="text-left py-2">Top Competitor</th></tr></thead>
-              <tbody>
+          <Card className="p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-foreground">
+                Organic rankings
+              </h2>
+              <ScoreBadge score={selected.organic_score} />
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Keyword</TableHead>
+                  <TableHead>Your position</TableHead>
+                  <TableHead>Top competitor</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {selected.organic_results?.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-800/50">
-                    <td className="py-2 text-white">{r.keyword}</td>
-                    <td className={`py-2 ${r.brand_position ? (r.brand_position <= 3 ? 'text-green-400' : r.brand_position <= 10 ? 'text-yellow-400' : 'text-red-400') : 'text-red-400'}`}>
-                      {r.brand_position ? `#${r.brand_position}` : 'Not found'}
-                    </td>
-                    <td className="py-2 text-gray-400">{r.top_competitor || '—'}</td>
-                  </tr>
+                  <TableRow key={i}>
+                    <TableCell className="text-foreground">{r.keyword}</TableCell>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          'font-mono font-semibold',
+                          r.brand_position
+                            ? r.brand_position <= 3
+                              ? 'text-success'
+                              : r.brand_position <= 10
+                                ? 'text-warning'
+                                : 'text-critical'
+                            : 'text-critical',
+                        )}
+                      >
+                        {r.brand_position ? `#${r.brand_position}` : 'Not found'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {r.top_competitor || '—'}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </Card>
 
           {/* AI Overview Results */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-4">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">AI Overview Citations {scoreBadge(selected.ai_overview_score)}</h2>
-            <table className="w-full text-sm">
-              <thead><tr className="text-xs text-gray-500 border-b border-gray-800"><th className="text-left py-2">Keyword</th><th className="text-left py-2">AI Overview?</th><th className="text-left py-2">You Cited?</th><th className="text-left py-2">Who&apos;s Cited</th></tr></thead>
-              <tbody>
+          <Card className="p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-foreground">
+                AI overview citations
+              </h2>
+              <ScoreBadge score={selected.ai_overview_score} />
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Keyword</TableHead>
+                  <TableHead>AI overview?</TableHead>
+                  <TableHead>You cited?</TableHead>
+                  <TableHead>Who&apos;s cited</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {selected.ai_overview_results?.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-800/50">
-                    <td className="py-2 text-white">{r.keyword}</td>
-                    <td className="py-2">{r.has_overview ? <span className="text-blue-400">Yes</span> : <span className="text-gray-600">No</span>}</td>
-                    <td className="py-2">{r.brand_cited ? <span className="text-green-400">Yes</span> : r.has_overview ? <span className="text-red-400">No</span> : <span className="text-gray-600">—</span>}</td>
-                    <td className="py-2 text-gray-400 text-xs">{r.citations?.slice(0, 3).join(', ') || '—'}</td>
-                  </tr>
+                  <TableRow key={i}>
+                    <TableCell className="text-foreground">{r.keyword}</TableCell>
+                    <TableCell>
+                      {r.has_overview ? (
+                        <Badge variant="info">Yes</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">No</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {r.brand_cited ? (
+                        <Badge variant="success">Yes</Badge>
+                      ) : r.has_overview ? (
+                        <Badge variant="critical">No</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {r.citations?.slice(0, 3).join(', ') || '—'}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </Card>
 
           {/* LLM Results */}
           {selected.llm_results?.length > 0 && (
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-4">
-              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">LLM Visibility (ChatGPT) {scoreBadge(selected.llm_score)}</h2>
-              <table className="w-full text-sm">
-                <thead><tr className="text-xs text-gray-500 border-b border-gray-800"><th className="text-left py-2">Question Asked</th><th className="text-left py-2">Mentioned?</th><th className="text-left py-2">Position</th><th className="text-left py-2">Competitors</th></tr></thead>
-                <tbody>
+            <Card className="p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-foreground">
+                  LLM visibility (ChatGPT)
+                </h2>
+                <ScoreBadge score={selected.llm_score} />
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Question asked</TableHead>
+                    <TableHead>Mentioned?</TableHead>
+                    <TableHead>Position</TableHead>
+                    <TableHead>Competitors</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {selected.llm_results.map((r, i) => (
-                    <tr key={i} className="border-b border-gray-800/50">
-                      <td className="py-2 text-white text-xs">{r.question}</td>
-                      <td className="py-2">{r.mentioned ? <span className="text-green-400">Yes</span> : <span className="text-red-400">No</span>}</td>
-                      <td className="py-2 text-gray-400">{r.position ? `#${r.position}` : '—'}</td>
-                      <td className="py-2 text-gray-400 text-xs">{r.competitors_mentioned?.slice(0, 3).join(', ') || '—'}</td>
-                    </tr>
+                    <TableRow key={i}>
+                      <TableCell className="text-xs text-foreground">
+                        {r.question}
+                      </TableCell>
+                      <TableCell>
+                        {r.mentioned ? (
+                          <Badge variant="success">Yes</Badge>
+                        ) : (
+                          <Badge variant="critical">No</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {r.position ? `#${r.position}` : '—'}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {r.competitors_mentioned?.slice(0, 3).join(', ') || '—'}
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </Card>
           )}
 
           {/* Paid Results */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Paid Search Presence {scoreBadge(selected.paid_score)}</h2>
-            <table className="w-full text-sm">
-              <thead><tr className="text-xs text-gray-500 border-b border-gray-800"><th className="text-left py-2">Keyword</th><th className="text-left py-2">Your Ad</th><th className="text-left py-2">Competitor Ads</th></tr></thead>
-              <tbody>
+          <Card className="p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-foreground">
+                Paid search presence
+              </h2>
+              <ScoreBadge score={selected.paid_score} />
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Keyword</TableHead>
+                  <TableHead>Your ad</TableHead>
+                  <TableHead>Competitor ads</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {selected.paid_results?.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-800/50">
-                    <td className="py-2 text-white">{r.keyword}</td>
-                    <td className={`py-2 ${r.brand_ad ? 'text-green-400' : 'text-red-400'}`}>{r.brand_ad ? `#${r.brand_ad}` : 'Not bidding'}</td>
-                    <td className="py-2 text-gray-400 text-xs">{r.competitor_ads?.join(', ') || '—'}</td>
-                  </tr>
+                  <TableRow key={i}>
+                    <TableCell className="text-foreground">{r.keyword}</TableCell>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          'font-mono font-semibold',
+                          r.brand_ad ? 'text-success' : 'text-critical',
+                        )}
+                      >
+                        {r.brand_ad ? `#${r.brand_ad}` : 'Not bidding'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {r.competitor_ads?.join(', ') || '—'}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </Card>
         </div>
       )}
     </div>
+  );
+}
+
+function ScoreTile({
+  icon,
+  label,
+  score,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  score: number;
+  tone: 'info' | 'accent' | 'success' | 'warning';
+}) {
+  const toneClass = {
+    info: 'bg-info/10 text-info',
+    accent: 'bg-accent/10 text-accent',
+    success: 'bg-success/10 text-success',
+    warning: 'bg-warning/10 text-warning',
+  } as const;
+  return (
+    <Card className="p-4 text-center">
+      <div
+        className={cn(
+          'mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-md',
+          toneClass[tone],
+        )}
+      >
+        {icon}
+      </div>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-semibold text-foreground">{score}</p>
+    </Card>
   );
 }

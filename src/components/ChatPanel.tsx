@@ -1,15 +1,31 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { X, Send, Loader2, Sparkles, Square, CheckCircle, AlertCircle, Search, Wrench } from 'lucide-react';
+import Link from 'next/link';
+import {
+  AlertCircle,
+  CheckCircle,
+  Loader2,
+  Search,
+  Send,
+  Square,
+  Wrench,
+  X,
+} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import Link from 'next/link';
-import { useChatPanel } from './layout/ChatPanelContext';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { AynMark } from '@/components/brand/Ayn';
+import { cn } from '@/lib/utils';
 import { useChat, type HarnessEvent } from '@/hooks/useChat';
+import { useChatPanel } from './layout/ChatPanelContext';
 
 // ============================================================
-// Event Card (compact version for panel)
+// Event card (compact version for panel)
 // ============================================================
 
 function EventCard({ event }: { event: HarnessEvent }) {
@@ -17,29 +33,32 @@ function EventCard({ event }: { event: HarnessEvent }) {
     case 'stage':
       return (
         <div className="flex items-center gap-2 py-1">
-          <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
-          <span className="text-xs text-blue-400">{event.content}</span>
+          <Loader2 className="h-3 w-3 animate-spin text-info" />
+          <span className="text-xs text-info">{event.content}</span>
         </div>
       );
     case 'tool_start':
       return (
-        <div className="flex items-center gap-2 py-1 animate-pulse">
-          <Search className="w-3 h-3 text-gray-400" />
-          <span className="text-xs text-gray-400">{event.summary}</span>
+        <div className="flex animate-pulse items-center gap-2 py-1">
+          <Search className="h-3 w-3 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">{event.summary}</span>
         </div>
       );
     case 'tool_done':
       return (
         <div className="flex items-center gap-2 py-1">
-          <CheckCircle className="w-3 h-3 text-green-400" />
-          <span className="text-xs text-gray-300">{event.summary}</span>
+          <CheckCircle className="h-3 w-3 text-success" />
+          <span className="text-xs text-foreground">{event.summary}</span>
         </div>
       );
     case 'campaign_ready':
       return (
         <div className="flex items-center gap-2 py-1">
-          <Wrench className="w-3 h-3 text-purple-400" />
-          <Link href={`/portfolio/${event.campaign_id}`} className="text-xs text-purple-400 hover:text-purple-300">
+          <Wrench className="h-3 w-3 text-accent" />
+          <Link
+            href={`/portfolio/${event.campaign_id}`}
+            className="text-xs text-accent hover:underline"
+          >
             Campaign ready — view details
           </Link>
         </div>
@@ -47,16 +66,19 @@ function EventCard({ event }: { event: HarnessEvent }) {
     case 'error':
       return (
         <div className="flex items-center gap-2 py-1">
-          <AlertCircle className="w-3 h-3 text-red-400" />
-          <span className="text-xs text-red-400">{event.content}</span>
+          <AlertCircle className="h-3 w-3 text-critical" />
+          <span className="text-xs text-critical">{event.content}</span>
         </div>
       );
     case 'done':
       if (event.approval_ids?.length) {
         return (
           <div className="flex items-center gap-2 py-1">
-            <CheckCircle className="w-3 h-3 text-green-400" />
-            <Link href="/approvals" className="text-xs text-green-400 hover:text-green-300">
+            <CheckCircle className="h-3 w-3 text-success" />
+            <Link
+              href="/approvals"
+              className="text-xs text-success hover:underline"
+            >
               Submitted for approval
             </Link>
           </div>
@@ -75,13 +97,18 @@ function EventCard({ event }: { event: HarnessEvent }) {
 export function ChatPanel() {
   const { isOpen, context, initialMessage, closeChat } = useChatPanel();
   const {
-    messages, input, setInput, isLoading, liveEvents,
-    pendingQuestion, sendMessage, loadHistory, stopGeneration, setPendingQuestion,
-  } = useChat({ context: context });
+    messages,
+    input,
+    setInput,
+    isLoading,
+    liveEvents,
+    sendMessage,
+    loadHistory,
+    stopGeneration,
+  } = useChat({ context });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const initialSent = useRef(false);
 
-  // Load history when panel opens
   useEffect(() => {
     if (isOpen) {
       loadHistory();
@@ -89,7 +116,6 @@ export function ChatPanel() {
     }
   }, [isOpen, loadHistory]);
 
-  // Send initial message if provided
   useEffect(() => {
     if (isOpen && initialMessage && !initialSent.current && messages.length >= 0) {
       initialSent.current = true;
@@ -97,7 +123,6 @@ export function ChatPanel() {
     }
   }, [isOpen, initialMessage, messages.length, sendMessage]);
 
-  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, liveEvents]);
@@ -110,95 +135,141 @@ export function ChatPanel() {
     <>
       {/* Backdrop */}
       {isOpen && (
-        <div className="fixed inset-0 bg-black/20 z-[45] transition-opacity" onClick={closeChat} />
+        <div
+          className="fixed inset-0 z-[45] bg-background/60 backdrop-blur-sm transition-opacity"
+          onClick={closeChat}
+          aria-hidden="true"
+        />
       )}
 
       {/* Panel */}
-      <div className={`fixed right-0 top-0 h-full z-50 bg-gray-950 border-l border-gray-800 shadow-2xl flex flex-col transition-transform duration-300 ease-out w-[40vw] min-w-[400px] max-w-[700px] ${
-        isOpen ? 'translate-x-0' : 'translate-x-full'
-      }`}>
+      <aside
+        className={cn(
+          'fixed right-0 top-0 z-50 flex h-full w-[40vw] min-w-[400px] max-w-[700px] flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 ease-out',
+          isOpen ? 'translate-x-0' : 'translate-x-full',
+        )}
+        aria-hidden={!isOpen}
+      >
         {/* Header */}
-        <div className="h-14 flex items-center justify-between px-4 border-b border-gray-800 shrink-0">
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-purple-400" />
-            <span className="font-semibold text-sm">AI Assistant</span>
+            <AynMark size={22} animated={isLoading} />
+            <span className="text-sm font-semibold text-foreground">
+              Ayn
+            </span>
             {context && (
-              <span className="text-[10px] text-gray-500 bg-gray-800 px-2 py-0.5 rounded">
-                {context.page}{context.entityName ? `: ${context.entityName}` : ''}
-              </span>
+              <Badge variant="muted" className="normal-case">
+                {context.page}
+                {context.entityName ? `: ${context.entityName}` : ''}
+              </Badge>
             )}
           </div>
-          <button onClick={closeChat} className="text-gray-400 hover:text-white p-1">
-            <X className="w-4 h-4" />
-          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={closeChat}
+            aria-label="Close chat panel"
+            className="h-7 w-7"
+          >
+            <X className="h-4 w-4" />
+          </Button>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 space-y-3 overflow-y-auto p-4">
           {messages.length === 0 && !isLoading && (
-            <div className="text-center py-8">
-              <Sparkles className="w-8 h-8 text-purple-400/50 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">Ask anything about your campaigns, performance, or strategy.</p>
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center">
+                <AynMark size={44} />
+              </div>
+              <p className="text-sm font-medium text-foreground">Ayn is listening</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Ask anything about your campaigns, performance, or strategy.
+              </p>
             </div>
           )}
 
           {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`px-3 py-2 rounded-lg text-sm overflow-hidden ${
-                msg.role === 'user'
-                  ? 'bg-blue-600 text-white max-w-[85%]'
-                  : 'bg-gray-900 border border-gray-800 text-gray-200 w-full'
-              }`}>
+            <div
+              key={msg.id}
+              className={cn(
+                'flex',
+                msg.role === 'user' ? 'justify-end' : 'justify-start',
+              )}
+            >
+              <div
+                className={cn(
+                  'overflow-hidden rounded-md px-3 py-2 text-sm',
+                  msg.role === 'user'
+                    ? 'max-w-[85%] bg-primary text-primary-foreground'
+                    : 'w-full border border-border bg-background text-foreground',
+                )}
+              >
                 {msg.role === 'assistant' ? (
                   <div className="overflow-x-auto">
                     {msg.events?.map((event, i) => (
                       <EventCard key={i} event={event} />
                     ))}
                     {msg.content && (
-                      <div className="prose prose-invert prose-xs max-w-none
-                        [&>p]:mb-2 [&>p]:leading-relaxed
-                        [&_table]:w-full [&_table]:text-[10px] [&_table]:mb-3
-                        [&_thead]:bg-gray-800/50
-                        [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:text-gray-400 [&_th]:font-medium [&_th]:border-b [&_th]:border-gray-700 [&_th]:whitespace-nowrap
-                        [&_td]:px-2 [&_td]:py-1 [&_td]:border-b [&_td]:border-gray-800/30 [&_td]:text-gray-300
-                        [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-white
-                        [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-orange-400
-                        [&_strong]:text-white
-                        [&_ul]:mb-2 [&_li]:text-xs [&_li]:text-gray-400
-                        [&_code]:text-[10px] [&_code]:bg-gray-800 [&_code]:px-1 [&_code]:rounded
-                        [&_pre]:text-[10px] [&_pre]:bg-gray-800 [&_pre]:p-2 [&_pre]:rounded [&_pre]:overflow-x-auto
-                      ">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                      <div
+                        className="prose prose-invert prose-xs max-w-none
+                          [&>p]:mb-2 [&>p]:leading-relaxed
+                          [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:text-[10px]
+                          [&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-sm [&_h2]:font-bold [&_h2]:text-foreground
+                          [&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:text-accent
+                          [&_li]:text-xs [&_li]:text-muted-foreground
+                          [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:text-[10px]
+                          [&_strong]:text-foreground
+                          [&_table]:mb-3 [&_table]:w-full [&_table]:text-[10px]
+                          [&_td]:border-b [&_td]:border-border/40 [&_td]:px-2 [&_td]:py-1 [&_td]:text-muted-foreground
+                          [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-border [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_th]:text-muted-foreground
+                          [&_thead]:bg-muted/50
+                          [&_ul]:mb-2"
+                      >
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <span className="whitespace-pre-wrap text-sm break-words">{msg.content}</span>
+                  <span className="whitespace-pre-wrap break-words text-sm">
+                    {msg.content}
+                  </span>
                 )}
-                <div className={`text-[9px] mt-1 ${msg.role === 'user' ? 'text-blue-300/40' : 'text-gray-600'}`}>
-                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <div
+                  className={cn(
+                    'mt-1 text-[9px]',
+                    msg.role === 'user'
+                      ? 'text-primary-foreground/60'
+                      : 'text-muted-foreground',
+                  )}
+                >
+                  {msg.timestamp.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
                 </div>
               </div>
             </div>
           ))}
 
-          {/* Live streaming */}
           {isLoading && liveEvents.length > 0 && (
-            <div className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2">
+            <Card className="px-3 py-2">
               {liveEvents.slice(-5).map((event, i) => (
                 <EventCard key={i} event={event} />
               ))}
-            </div>
+            </Card>
           )}
 
           {isLoading && liveEvents.length === 0 && (
             <div className="flex items-center gap-2 py-2">
               <div className="flex gap-1">
-                <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" />
-                <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce [animation-delay:150ms]" />
-                <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce [animation-delay:300ms]" />
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:150ms]" />
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:300ms]" />
               </div>
-              <span className="text-xs text-gray-500">Thinking...</span>
+              <span className="text-xs text-muted-foreground">Thinking…</span>
             </div>
           )}
 
@@ -206,9 +277,9 @@ export function ChatPanel() {
         </div>
 
         {/* Input */}
-        <div className="p-3 border-t border-gray-800 shrink-0">
+        <div className="shrink-0 border-t border-border p-3">
           <div className="flex items-center gap-2">
-            <input
+            <Input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -218,23 +289,39 @@ export function ChatPanel() {
                   handleSend();
                 }
               }}
-              placeholder={context?.entityName ? `Ask about ${context.entityName}...` : 'Ask anything...'}
-              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder={
+                context?.entityName
+                  ? `Ask about ${context.entityName}…`
+                  : 'Ask anything…'
+              }
               disabled={isLoading}
             />
             {isLoading ? (
-              <button onClick={stopGeneration} className="p-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/30">
-                <Square className="w-4 h-4" />
-              </button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={stopGeneration}
+                className="text-critical hover:text-critical"
+                aria-label="Stop generation"
+              >
+                <Square className="h-4 w-4" />
+              </Button>
             ) : (
-              <button onClick={handleSend} disabled={!input.trim()} className="p-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white rounded-lg">
-                <Send className="w-4 h-4" />
-              </button>
+              <Button
+                size="icon"
+                onClick={handleSend}
+                disabled={!input.trim()}
+                aria-label="Send message"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
             )}
           </div>
-          <p className="text-[9px] text-gray-600 mt-1 text-center">Cmd+K to toggle &middot; Esc to close</p>
+          <p className="mt-1 text-center text-[9px] text-muted-foreground">
+            Cmd+K to toggle · Esc to close
+          </p>
         </div>
-      </div>
+      </aside>
     </>
   );
 }

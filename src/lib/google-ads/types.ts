@@ -89,6 +89,10 @@ export interface GoogleAdsPerformanceRow {
     ctr: string;
     average_cpc: string;
     search_impression_share?: string;
+    // Populated on keyword-level rows only — Google Ads exposes quality_score
+    // on ad_group_criterion.quality_info. Stored as integer 1–10 (or null if
+    // Google hasn't computed one yet, e.g. for very-low-volume keywords).
+    quality_score?: number;
   };
 }
 

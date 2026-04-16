@@ -491,15 +491,25 @@ export class GoogleAdsClient {
     dateFrom: string,
     dateTo: string,
   ): Promise<GoogleAdsPerformanceRow[]> {
+    // ad_group_criterion.quality_info.quality_score is a "current value"
+    // field (not a segmented metric), so every daily row in the result set
+    // carries today's QS. That's acceptable — we sync daily, and each
+    // day's snapshot captures the QS as of sync time. Quality-score-decay
+    // detection in the OptimizerAgent compares week-over-week averages
+    // across snapshots, which does work with this shape.
     const results = await this.query<{
-      adGroupCriterion: { criterionId: string };
+      adGroupCriterion: {
+        criterionId: string;
+        qualityInfo?: { qualityScore?: number };
+      };
       segments: { date: string };
       metrics: GoogleAdsPerformanceRow['metrics'];
     }>(
       `SELECT ad_group_criterion.criterion_id, segments.date,
               metrics.impressions, metrics.clicks, metrics.cost_micros,
               metrics.conversions, metrics.conversions_value,
-              metrics.ctr, metrics.average_cpc
+              metrics.ctr, metrics.average_cpc,
+              ad_group_criterion.quality_info.quality_score
        FROM keyword_view
        WHERE ad_group.id = '${adGroupId}'
          AND segments.date BETWEEN '${dateFrom}' AND '${dateTo}'
@@ -509,7 +519,10 @@ export class GoogleAdsClient {
     return results.map((r) => ({
       keyword_id: r.adGroupCriterion.criterionId,
       date: r.segments.date,
-      metrics: r.metrics,
+      metrics: {
+        ...r.metrics,
+        quality_score: r.adGroupCriterion.qualityInfo?.qualityScore,
+      },
     }));
   }
 

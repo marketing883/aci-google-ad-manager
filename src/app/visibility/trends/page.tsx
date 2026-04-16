@@ -1,8 +1,25 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Minus, TrendingDown, TrendingUp } from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { EmptyState } from '@/components/patterns/EmptyState';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { api } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 
 interface Report {
   id: string;
@@ -17,21 +34,32 @@ interface Report {
 
 function TrendArrow({ current, previous }: { current: number; previous: number }) {
   const diff = current - previous;
-  if (diff > 0) return <span className="text-green-400 flex items-center gap-1 text-xs"><TrendingUp className="w-3 h-3" />+{diff}</span>;
-  if (diff < 0) return <span className="text-red-400 flex items-center gap-1 text-xs"><TrendingDown className="w-3 h-3" />{diff}</span>;
-  return <span className="text-gray-500 flex items-center gap-1 text-xs"><Minus className="w-3 h-3" />0</span>;
+  if (diff > 0) {
+    return (
+      <Badge variant="success">
+        <TrendingUp className="h-3 w-3" />+{diff}
+      </Badge>
+    );
+  }
+  if (diff < 0) {
+    return (
+      <Badge variant="critical">
+        <TrendingDown className="h-3 w-3" />
+        {diff}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="muted">
+      <Minus className="h-3 w-3" />0
+    </Badge>
+  );
 }
 
-function ScoreBar({ score, maxWidth = 200 }: { score: number; maxWidth?: number }) {
-  const color = score >= 70 ? 'bg-green-500' : score >= 40 ? 'bg-yellow-500' : 'bg-red-500';
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-4 bg-gray-800 rounded-full" style={{ width: maxWidth }}>
-        <div className={`h-4 rounded-full ${color}`} style={{ width: `${score}%` }} />
-      </div>
-      <span className="text-sm font-bold w-8">{score}</span>
-    </div>
-  );
+function scoreTone(score: number) {
+  if (score >= 70) return 'text-success';
+  if (score >= 40) return 'text-warning';
+  return 'text-critical';
 }
 
 export default function TrendsPage() {
@@ -39,125 +67,197 @@ export default function TrendsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/visibility').then((r) => r.json()).then((d) => {
-      setReports(Array.isArray(d) ? d : []);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    api
+      .get<Report[]>('/api/visibility')
+      .then((d) => setReports(Array.isArray(d) ? d : []))
+      .catch(() => {
+        /* silent */
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  // Reverse for chronological order (oldest first)
   const chronological = [...reports].reverse();
 
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-6">
-        <Link href="/visibility" className="text-gray-400 hover:text-white"><ArrowLeft className="w-5 h-5" /></Link>
-        <TrendingUp className="w-6 h-6 text-green-400" />
-        <div>
-          <h1 className="text-2xl font-bold">Visibility Trends</h1>
-          <p className="text-sm text-gray-500">Track how your scores change over time</p>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        icon={
+          <Button variant="ghost" size="icon" asChild className="h-9 w-9">
+            <Link href="/visibility" aria-label="Back to visibility">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+        }
+        title="Visibility trends"
+        description="Track how your scores change over time."
+      />
 
       {loading ? (
-        <div className="text-center py-20 text-gray-500"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />Loading...</div>
-      ) : reports.length < 2 ? (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
-          <TrendingUp className="w-12 h-12 text-gray-700 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-gray-300 mb-2">Need more data</h2>
-          <p className="text-gray-500 text-sm mb-4">Run at least 2 visibility reports to see trends. Run reports weekly or monthly for best tracking.</p>
-          <Link href="/visibility/new" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg inline-block">Run Report</Link>
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
+      ) : reports.length < 2 ? (
+        <EmptyState
+          icon={<TrendingUp className="h-6 w-6" />}
+          title="Need more data"
+          description="Run at least 2 visibility reports to see trends. Weekly or monthly cadence works best."
+          action={
+            <Button asChild>
+              <Link href="/visibility/new">Run report</Link>
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-6">
-          {/* Score Timeline */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Overall Score Timeline</h2>
-            <div className="space-y-3">
+          {/* Score timeline */}
+          <Card className="p-5">
+            <h2 className="mb-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Overall score timeline
+            </h2>
+            <div className="space-y-2">
               {chronological.map((report, i) => {
                 const prev = i > 0 ? chronological[i - 1] : null;
                 return (
-                  <Link key={report.id} href={`/visibility/${report.id}`} className="flex items-center gap-4 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/60 transition-colors">
-                    <span className="text-xs text-gray-500 w-24">{new Date(report.created_at).toLocaleDateString()}</span>
-                    <ScoreBar score={report.overall_score} />
-                    {prev && <TrendArrow current={report.overall_score} previous={prev.overall_score} />}
+                  <Link
+                    key={report.id}
+                    href={`/visibility/${report.id}`}
+                    className="flex items-center gap-4 rounded-md border border-border bg-muted/20 p-3 transition-colors hover:bg-muted/40"
+                  >
+                    <span className="w-24 shrink-0 text-xs text-muted-foreground">
+                      {new Date(report.created_at).toLocaleDateString()}
+                    </span>
+                    <div className="flex-1">
+                      <Progress value={report.overall_score} />
+                    </div>
+                    <span className={cn('w-8 text-sm font-bold', scoreTone(report.overall_score))}>
+                      {report.overall_score}
+                    </span>
+                    {prev && (
+                      <TrendArrow
+                        current={report.overall_score}
+                        previous={prev.overall_score}
+                      />
+                    )}
                   </Link>
                 );
               })}
             </div>
-          </div>
+          </Card>
 
-          {/* Score Breakdown Over Time */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Score Breakdown</h2>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-gray-500 border-b border-gray-800">
-                  <th className="text-left py-2">Date</th>
-                  <th className="text-center py-2">Overall</th>
-                  <th className="text-center py-2">Organic</th>
-                  <th className="text-center py-2">AI Overview</th>
-                  <th className="text-center py-2">LLM</th>
-                  <th className="text-center py-2">Paid</th>
-                  <th className="text-center py-2">Keywords</th>
-                </tr>
-              </thead>
-              <tbody>
+          {/* Score breakdown */}
+          <Card className="p-5">
+            <h2 className="mb-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Score breakdown
+            </h2>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-center">Overall</TableHead>
+                  <TableHead className="text-center">Organic</TableHead>
+                  <TableHead className="text-center">AI Overview</TableHead>
+                  <TableHead className="text-center">LLM</TableHead>
+                  <TableHead className="text-center">Paid</TableHead>
+                  <TableHead className="text-center">Keywords</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {chronological.map((report, i) => {
                   const prev = i > 0 ? chronological[i - 1] : null;
-                  const scoreCell = (current: number, previous?: number) => {
-                    const color = current >= 70 ? 'text-green-400' : current >= 40 ? 'text-yellow-400' : 'text-red-400';
-                    return (
-                      <td className="py-2 text-center">
-                        <span className={`font-bold ${color}`}>{current}</span>
-                        {previous !== undefined && (
-                          <span className={`text-[10px] ml-1 ${current > previous ? 'text-green-400' : current < previous ? 'text-red-400' : 'text-gray-600'}`}>
-                            {current > previous ? `+${current - previous}` : current < previous ? `${current - previous}` : ''}
-                          </span>
-                        )}
-                      </td>
-                    );
-                  };
-
+                  const scoreCell = (current: number, previous?: number) => (
+                    <TableCell className="text-center">
+                      <span className={cn('font-bold', scoreTone(current))}>
+                        {current}
+                      </span>
+                      {previous !== undefined && current !== previous && (
+                        <span
+                          className={cn(
+                            'ml-1 text-[10px]',
+                            current > previous ? 'text-success' : 'text-critical',
+                          )}
+                        >
+                          {current > previous ? '+' : ''}
+                          {current - previous}
+                        </span>
+                      )}
+                    </TableCell>
+                  );
                   return (
-                    <tr key={report.id} className="border-b border-gray-800/50">
-                      <td className="py-2 text-gray-400">{new Date(report.created_at).toLocaleDateString()}</td>
+                    <TableRow key={report.id}>
+                      <TableCell className="text-muted-foreground">
+                        {new Date(report.created_at).toLocaleDateString()}
+                      </TableCell>
                       {scoreCell(report.overall_score, prev?.overall_score)}
                       {scoreCell(report.organic_score, prev?.organic_score)}
                       {scoreCell(report.ai_overview_score, prev?.ai_overview_score)}
                       {scoreCell(report.llm_score, prev?.llm_score)}
                       {scoreCell(report.paid_score, prev?.paid_score)}
-                      <td className="py-2 text-center text-gray-500">{report.target_keywords.length}</td>
-                    </tr>
+                      <TableCell className="text-center text-muted-foreground">
+                        {report.target_keywords.length}
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </Card>
 
-          {/* Latest vs First comparison */}
-          {reports.length >= 2 && (
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Progress: First Report vs Latest</h2>
-              <div className="grid grid-cols-5 gap-4">
-                {(['overall_score', 'organic_score', 'ai_overview_score', 'llm_score', 'paid_score'] as const).map((key) => {
-                  const labels: Record<string, string> = { overall_score: 'Overall', organic_score: 'Organic', ai_overview_score: 'AI Overview', llm_score: 'LLM', paid_score: 'Paid' };
-                  const first = chronological[0][key];
-                  const latest = chronological[chronological.length - 1][key];
-                  const diff = latest - first;
-                  return (
-                    <div key={key} className="text-center">
-                      <p className="text-xs text-gray-500 mb-2">{labels[key]}</p>
-                      <p className="text-sm text-gray-400">{first} → <span className="font-bold text-white">{latest}</span></p>
-                      <p className={`text-sm font-bold mt-1 ${diff > 0 ? 'text-green-400' : diff < 0 ? 'text-red-400' : 'text-gray-500'}`}>
-                        {diff > 0 ? `+${diff}` : diff < 0 ? diff : '—'}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
+          {/* First vs latest */}
+          <Card className="p-5">
+            <h2 className="mb-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Progress: first report vs latest
+            </h2>
+            <div className="grid grid-cols-5 gap-4">
+              {(
+                [
+                  'overall_score',
+                  'organic_score',
+                  'ai_overview_score',
+                  'llm_score',
+                  'paid_score',
+                ] as const
+              ).map((key) => {
+                const labels: Record<string, string> = {
+                  overall_score: 'Overall',
+                  organic_score: 'Organic',
+                  ai_overview_score: 'AI Overview',
+                  llm_score: 'LLM',
+                  paid_score: 'Paid',
+                };
+                const first = chronological[0][key];
+                const latest = chronological[chronological.length - 1][key];
+                const diff = latest - first;
+                return (
+                  <div
+                    key={key}
+                    className="rounded-md border border-border bg-muted/20 p-3 text-center"
+                  >
+                    <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {labels[key]}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {first} →{' '}
+                      <span className="text-sm font-bold text-foreground">
+                        {latest}
+                      </span>
+                    </p>
+                    <p
+                      className={cn(
+                        'mt-1 text-sm font-bold',
+                        diff > 0
+                          ? 'text-success'
+                          : diff < 0
+                            ? 'text-critical'
+                            : 'text-muted-foreground',
+                      )}
+                    >
+                      {diff > 0 ? `+${diff}` : diff < 0 ? diff : '—'}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
-          )}
+          </Card>
         </div>
       )}
     </div>

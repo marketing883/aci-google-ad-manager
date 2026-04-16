@@ -65,7 +65,14 @@
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
       "Bash(grep \"from\\('\\\\\\\\|\\\\.from\\('\" /c/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/src/lib/agents/tools.ts)",
       "Bash(bash /tmp/verify_imports.sh)",
-      "Bash(find /c/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/database -name \"*.sql\" -exec basename {} \\\\;)"
+      "Bash(find /c/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/database -name \"*.sql\" -exec basename {} \\\\;)",
+      "Bash(npm run:*)",
+      "mcp__Claude_Preview__preview_start",
+      "WebFetch(domain:aciinfotech.com)",
+      "Bash(curl -sL -o C:/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/public/brand/aci-infotech-logo-white.png https://aciinfotech.com/aci-infotech-logo-white.png)",
+      "Bash(curl -sL -o C:/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/public/brand/aci-infotech-logo.png https://aciinfotech.com/aci-infotech-logo.png)",
+      "Bash(wc -l C:/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/database/schema/complete_schema.sql C:/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/database/migrations/*.sql)",
+      "Bash(grep -l \"export async function\" C:/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/src/app/api/campaigns/[id]/ad-groups/route.ts C:/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/src/app/api/campaigns/[id]/ad-groups/[agId]/route.ts C:/Users/Habib/Documents/ACI-New/ACI-Ads-Manager/src/app/api/campaigns/[id]/ad-groups/[agId]/ads/[adId]/route.ts)"
     ]
   }
 }
